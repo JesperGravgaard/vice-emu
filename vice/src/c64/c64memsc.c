@@ -1215,7 +1215,11 @@ static uint8_t peek_bank_io(uint16_t addr)
 
 /* Exported banked memory access functions for the monitor.  */
 
-static const char *banknames[] = {
+/* Base banks (always present) */
+#define NUM_BASE_BANKS 6   /* default, cpu, ram, rom, io, cart */
+#define REU_FIRST_BANK 5   /* bank number for reu00 */
+
+static const char *base_banknames[] = {
     "default",
     "cpu",   /* #0 */
     "ram",   /* #1 */
@@ -1226,27 +1230,140 @@ static const char *banknames[] = {
     NULL
 };
 
-static const int banknums[] = { 0, 0, 1, 2, 3, 4, -1 };
-static const int bankindex[] = { -1, -1, -1, -1, -1, -1, -1 };
-static const int bankflags[] = { 0, 0, 0, 0, 0, 0, -1 };
+static const int base_banknums[]  = { 0, 0, 1, 2, 3, 4, -1 };
+static const int base_bankindex[] = { -1, -1, -1, -1, -1, -1, -1 };
+static const int base_bankflags[] = { 0, 0, 0, 0, 0, 0, -1 };
+
+/* Dynamic arrays (rebuilt when REU state changes) */
+static char **dyn_banknames = NULL;
+static int *dyn_banknums = NULL;
+static int *dyn_bankindex = NULL;
+static int *dyn_bankflags = NULL;
+static int dyn_num_reu_banks = 0;
+
+/* Cached REU state for lazy rebuild */
+static int cached_reu_enabled = -1;
+static unsigned int cached_reu_size = 0;
+
+static void free_bank_arrays(void)
+{
+    int i;
+
+    if (dyn_banknames != NULL) {
+        /* free the REU name strings (base names are string literals) */
+        for (i = NUM_BASE_BANKS; i < NUM_BASE_BANKS + dyn_num_reu_banks; i++) {
+            lib_free(dyn_banknames[i]);
+        }
+        lib_free(dyn_banknames);
+        dyn_banknames = NULL;
+    }
+    if (dyn_banknums != NULL) {
+        lib_free(dyn_banknums);
+        dyn_banknums = NULL;
+    }
+    if (dyn_bankindex != NULL) {
+        lib_free(dyn_bankindex);
+        dyn_bankindex = NULL;
+    }
+    if (dyn_bankflags != NULL) {
+        lib_free(dyn_bankflags);
+        dyn_bankflags = NULL;
+    }
+    dyn_num_reu_banks = 0;
+}
+
+static void rebuild_bank_arrays(int reu_on, unsigned int reu_sz)
+{
+    int reu_banks = reu_on ? (int)(reu_sz >> 16) : 0;
+    int total = NUM_BASE_BANKS + reu_banks;
+    int i;
+
+    free_bank_arrays();
+
+    cached_reu_enabled = reu_on;
+    cached_reu_size = reu_sz;
+
+    if (reu_banks == 0) {
+        return;
+    }
+
+    dyn_num_reu_banks = reu_banks;
+
+    /* Allocate: total entries + sentinel */
+    dyn_banknames = lib_malloc((size_t)(total + 1) * sizeof(char *));
+    dyn_banknums  = lib_malloc((size_t)(total + 1) * sizeof(int));
+    dyn_bankindex = lib_malloc((size_t)(total + 1) * sizeof(int));
+    dyn_bankflags = lib_malloc((size_t)(total + 1) * sizeof(int));
+
+    /* Copy base entries (names are string literals, not allocated) */
+    for (i = 0; i < NUM_BASE_BANKS; i++) {
+        dyn_banknames[i] = (char *)base_banknames[i];
+        dyn_banknums[i]  = base_banknums[i];
+        dyn_bankindex[i] = base_bankindex[i];
+        dyn_bankflags[i] = base_bankflags[i];
+    }
+
+    /* Add REU entries */
+    for (i = 0; i < reu_banks; i++) {
+        char name[8];
+        int flags = MEM_BANK_ISARRAY;
+
+        sprintf(name, "reu%02x", (unsigned int)i);
+        dyn_banknames[NUM_BASE_BANKS + i] = lib_strdup(name);
+        dyn_banknums[NUM_BASE_BANKS + i]  = REU_FIRST_BANK + i;
+        dyn_bankindex[NUM_BASE_BANKS + i] = i;
+
+        if (i == 0) {
+            flags |= MEM_BANK_ISARRAYFIRST;
+        }
+        if (i == reu_banks - 1) {
+            flags |= MEM_BANK_ISARRAYLAST;
+        }
+        dyn_bankflags[NUM_BASE_BANKS + i] = flags;
+    }
+
+    /* Sentinels */
+    dyn_banknames[total] = NULL;
+    dyn_banknums[total]  = -1;
+    dyn_bankindex[total] = -1;
+    dyn_bankflags[total] = -1;
+}
+
+static void check_rebuild_bank_arrays(void)
+{
+    int reu_on = reu_cart_enabled();
+    unsigned int reu_sz = reu_get_size();
+
+    if (reu_on != cached_reu_enabled || reu_sz != cached_reu_size) {
+        rebuild_bank_arrays(reu_on, reu_sz);
+    }
+}
 
 const char **mem_bank_list(void)
 {
-    return banknames;
+    check_rebuild_bank_arrays();
+    return (const char **)(dyn_banknames ? dyn_banknames : (char **)base_banknames);
 }
 
 const int *mem_bank_list_nos(void) {
-    return banknums;
+    check_rebuild_bank_arrays();
+    return dyn_banknums ? dyn_banknums : base_banknums;
 }
 
 /* return bank number for a given literal bank name */
 int mem_bank_from_name(const char *name)
 {
+    const char **names;
+    const int *nums;
     int i = 0;
 
-    while (banknames[i]) {
-        if (!strcmp(name, banknames[i])) {
-            return banknums[i];
+    check_rebuild_bank_arrays();
+    names = (const char **)(dyn_banknames ? dyn_banknames : (char **)base_banknames);
+    nums  = dyn_banknums ? dyn_banknums : base_banknums;
+
+    while (names[i]) {
+        if (!strcmp(name, names[i])) {
+            return nums[i];
         }
         i++;
     }
@@ -1256,11 +1373,17 @@ int mem_bank_from_name(const char *name)
 /* return current index for a given bank */
 int mem_bank_index_from_bank(int bank)
 {
+    const int *nums;
+    const int *idx;
     int i = 0;
 
-    while (banknums[i] > -1) {
-        if (banknums[i] == bank) {
-            return bankindex[i];
+    check_rebuild_bank_arrays();
+    nums = dyn_banknums ? dyn_banknums : base_banknums;
+    idx  = dyn_bankindex ? dyn_bankindex : base_bankindex;
+
+    while (nums[i] > -1) {
+        if (nums[i] == bank) {
+            return idx[i];
         }
         i++;
     }
@@ -1269,11 +1392,17 @@ int mem_bank_index_from_bank(int bank)
 
 int mem_bank_flags_from_bank(int bank)
 {
+    const int *nums;
+    const int *flags;
     int i = 0;
 
-    while (banknums[i] > -1) {
-        if (banknums[i] == bank) {
-            return bankflags[i];
+    check_rebuild_bank_arrays();
+    nums  = dyn_banknums ? dyn_banknums : base_banknums;
+    flags = dyn_bankflags ? dyn_bankflags : base_bankflags;
+
+    while (nums[i] > -1) {
+        if (nums[i] == bank) {
+            return flags[i];
         }
         i++;
     }
@@ -1282,6 +1411,11 @@ int mem_bank_flags_from_bank(int bank)
 
 uint8_t mem_bank_read(int bank, uint16_t addr, void *context)
 {
+    /* REU banks */
+    if (bank >= REU_FIRST_BANK) {
+        return reu_ram_read(((unsigned int)(bank - REU_FIRST_BANK) << 16) | addr);
+    }
+
     switch (bank) {
         case 0:                   /* current */
             return mem_read(addr);
@@ -1367,6 +1501,11 @@ uint8_t mem_peek_with_config(int config, uint16_t addr, void *context) {
  */
 uint8_t mem_bank_peek(int bank, uint16_t addr, void *context)
 {
+    /* REU banks */
+    if (bank >= REU_FIRST_BANK) {
+        return reu_ram_read(((unsigned int)(bank - REU_FIRST_BANK) << 16) | addr);
+    }
+
     switch (bank) {
         case 0: /* CPU */
             return mem_peek_with_config(mem_config, addr, context);
@@ -1396,6 +1535,12 @@ uint8_t mem_bank_peek(int bank, uint16_t addr, void *context)
 
 void mem_bank_write(int bank, uint16_t addr, uint8_t byte, void *context)
 {
+    /* REU banks */
+    if (bank >= REU_FIRST_BANK) {
+        reu_ram_write(((unsigned int)(bank - REU_FIRST_BANK) << 16) | addr, byte);
+        return;
+    }
+
     switch (bank) {
         case 0:                   /* current */
             mem_store(addr, byte);
@@ -1426,6 +1571,12 @@ void mem_bank_write(int bank, uint16_t addr, uint8_t byte, void *context)
 /* used by monitor if sfx off */
 void mem_bank_poke(int bank, uint16_t addr, uint8_t byte, void *context)
 {
+    /* REU banks */
+    if (bank >= REU_FIRST_BANK) {
+        reu_ram_write(((unsigned int)(bank - REU_FIRST_BANK) << 16) | addr, byte);
+        return;
+    }
+
     switch (bank) {
         case 0:                   /* current */
             /* we must check for which bank is currently active, and only use peek_bank_io

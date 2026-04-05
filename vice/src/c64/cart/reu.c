@@ -309,6 +309,45 @@ int reu_cart_enabled(void)
     return reu_enabled;
 }
 
+/*! \brief Return the size of the REU in bytes.
+
+ Used by the monitor bank system to determine how many 64K REU banks
+ to expose. Returns 0 if the REU has not been initialized. */
+unsigned int reu_get_size(void)
+{
+    return reu_size;
+}
+
+/*! \brief Read a byte from REU DRAM at the given linear address.
+
+ \param addr
+   linear byte address into REU DRAM (bank << 16 | offset).
+
+ \return the byte at that address, or 0 if out of range. */
+uint8_t reu_ram_read(unsigned int addr)
+{
+    if (reu_ram != NULL && addr < reu_size) {
+        return reu_ram[addr];
+    }
+    return 0;
+}
+
+/*! \brief Write a byte to REU DRAM at the given linear address.
+
+ \param addr
+   linear byte address into REU DRAM (bank << 16 | offset).
+
+ \param value
+   the byte value to write.
+
+ Does nothing if the address is out of range. */
+void reu_ram_write(unsigned int addr, uint8_t value)
+{
+    if (reu_ram != NULL && addr < reu_size) {
+        reu_ram[addr] = value;
+    }
+}
+
 /*! \internal \brief set the reu to the enabled or disabled state
 
  \param val
