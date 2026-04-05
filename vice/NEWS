@@ -99,6 +99,8 @@ AND FIXING FURTHER GAMECONTROLLER RELATED ISSUES - PLEASE GET IN TOUCH!
 - Drives: fixed some issues with reading open I/O
 
 - Monitor: fixed some cases where checkpoints would not trigger
+- Monitor: added REU memory banks (reu00..reuNN) to x64, x64sc and x128
+  for inspecting and modifying REU DRAM contents via the "bank" command
 
 - c1541: Fixed reading REL files
 

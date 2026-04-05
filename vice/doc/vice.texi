@@ -12768,8 +12768,11 @@ The following I/O extensions are available:
 @item REU -
 The ``RAM Expansion Module'' extension emulates a standard
 Commodore RAM Expansion Unit; this can be used with GEOS and other
-programs that are designed to take advantage of it.  This currently
-works only in the C64 emulator.
+programs that are designed to take advantage of it
+(x64, x64sc, x128).
+When the REU is enabled, its DRAM contents can be inspected and modified
+through the monitor @code{bank} command
+(@pxref{Machine state commands}).
 
 @cindex SFX Sound Expander
 @item SFX Sound Expander
@@ -21075,6 +21078,11 @@ address_space. With a bankname given, switch to the specified
 bank. If a bank is not completely filled (ROM banks for example)
 normally the @code{ram} bank is used where the bank has holes.
 The @code{cpu} bank uses the bank currently used by the CPU.
+
+When the REU is enabled in x64, x64sc or x128, banks named @code{reu00}
+through @code{reuNN} become available for accessing REU DRAM, where NN
+depends on the configured REU size (e.g.@: @code{reu00}..@code{reu07}
+for 512 KiB).  These banks are displayed as a collapsed range.
 
 @item cpuhistory [<count>] [c:] [8:] [9:] [10:] [11:]
 @itemx chis [<count>] [c:] [8:] [9:] [10:] [11:]
