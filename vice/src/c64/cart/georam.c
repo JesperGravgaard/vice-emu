@@ -33,6 +33,7 @@
 #include "archdep.h"
 #include "cartio.h"
 #include "cartridge.h"
+#include "cartridge_banks.h"
 #include "cmdline.h"
 #include "export.h"
 #include "lib.h"
@@ -187,6 +188,56 @@ int georam_cart_enabled(void)
     return georam_enabled;
 }
 
+/*! \brief Return the size of the GeoRAM in bytes.
+
+ Used by the monitor bank system to determine how many 64K GeoRAM banks
+ to expose. Returns 0 if the GeoRAM has not been initialized. */
+unsigned int georam_get_size(void)
+{
+    return (unsigned int)georam_size;
+}
+
+/*! \brief Read a byte from GeoRAM DRAM at the given linear address.
+
+ \param addr
+   linear byte address into GeoRAM DRAM (bank << 16 | offset).
+
+ \return the byte at that address, or 0 if out of range. */
+uint8_t georam_ram_read(unsigned int addr)
+{
+    if (georam_ram != NULL && addr < (unsigned int)georam_size) {
+        return georam_ram[addr];
+    }
+    return 0;
+}
+
+/*! \brief Write a byte to GeoRAM DRAM at the given linear address.
+
+ \param addr
+   linear byte address into GeoRAM DRAM (bank << 16 | offset).
+
+ \param value
+   the byte value to write.
+
+ Does nothing if the address is out of range. */
+void georam_ram_write(unsigned int addr, uint8_t value)
+{
+    if (georam_ram != NULL && addr < (unsigned int)georam_size) {
+        georam_ram[addr] = value;
+    }
+}
+
+/*! \brief Monitor bank info for the GeoRAM RAM region. */
+static cart_bank_info_t georam_bank_info = {
+    "geo",              /* prefix */
+    0,                  /* num_banks -- set on enable/resize */
+    0,                  /* total_size -- set on enable/resize */
+    georam_ram_read,
+    georam_ram_write,
+    0,                  /* first_bank_num -- assigned by registry */
+    NULL                /* next -- managed by registry */
+};
+
 static uint8_t georam_io1_read(uint16_t addr)
 {
     uint8_t retval;
@@ -330,6 +381,7 @@ static int set_georam_enabled(int value, void *param)
         georam_io2_list_item = NULL;
         export_remove(&export_res);
         georam_enabled = 0;
+        cartridge_bank_unregister(&georam_bank_info);
     }
     if (!georam_enabled && val) {
         if (georam_activate() < 0) {
@@ -355,6 +407,9 @@ static int set_georam_enabled(int value, void *param)
         georam_io1_list_item = io_source_register(&georam_io1_device);
         georam_io2_list_item = io_source_register(&georam_io2_device);
         georam_enabled = 1;
+        georam_bank_info.num_banks = (int)((unsigned int)georam_size >> 16);
+        georam_bank_info.total_size = (unsigned int)georam_size;
+        cartridge_bank_register(&georam_bank_info);
     }
     return 0;
 }
@@ -382,6 +437,9 @@ static int set_georam_size(int val, void *param)
         georam_size_kb = val;
         georam_size = georam_size_kb << 10;
         georam_activate();
+        georam_bank_info.num_banks = (int)((unsigned int)georam_size >> 16);
+        georam_bank_info.total_size = (unsigned int)georam_size;
+        cartridge_bank_register(&georam_bank_info);
     } else {
         georam_size_kb = val;
         georam_size = georam_size_kb << 10;
@@ -478,6 +536,7 @@ int georam_resources_init(void)
 
 void georam_resources_shutdown(void)
 {
+    cartridge_bank_unregister(&georam_bank_info);
     lib_free(georam_filename);
     georam_filename = NULL;
 }

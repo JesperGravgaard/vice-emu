@@ -49,6 +49,7 @@
 #include "c64cartmem.h"
 #include "cartio.h"
 #include "cartridge.h"
+#include "cartridge_banks.h"
 #include "cia.h"
 #include "lib.h"
 #include "machine.h"
@@ -1236,7 +1237,11 @@ static uint8_t peek_bank_io(uint16_t addr)
 
 /* Exported banked memory access functions for the monitor.  */
 
-static const char *banknames[] = {
+/* Base banks -- always present regardless of cartridge state. */
+#define NUM_BASE_BANKS 6   /* default, cpu, ram, rom, io, cart */
+#define CART_BANKS_START 5 /* first bank number after the base banks */
+
+static const char *base_banknames[] = {
     "default",
     "cpu",
     "ram",
@@ -1247,27 +1252,159 @@ static const char *banknames[] = {
     NULL
 };
 
-static const int banknums[] = { 0, 0, 1, 2, 3, 4, -1 };
-static const int bankindex[] = { -1, -1, -1, -1, -1, -1, -1 };
-static const int bankflags[] = { 0, 0, 0, 0, 0, 0, -1 };
+static const int base_banknums[]  = { 0, 0, 1, 2, 3, 4, -1 };
+static const int base_bankindex[] = { -1, -1, -1, -1, -1, -1, -1 };
+static const int base_bankflags[] = { 0, 0, 0, 0, 0, 0, -1 };
+
+/* Dynamic arrays rebuilt when the cartridge bank registry changes. */
+static char **dyn_banknames = NULL;
+static int *dyn_banknums = NULL;
+static int *dyn_bankindex = NULL;
+static int *dyn_bankflags = NULL;
+
+/* Generation counter cached from the last rebuild. */
+static unsigned int cached_generation = (unsigned int)-1;
+
+static void free_bank_arrays(void)
+{
+    int i;
+    int num_cart_banks;
+
+    if (dyn_banknames == NULL) {
+        return;
+    }
+
+    num_cart_banks = 0;
+    for (i = NUM_BASE_BANKS; dyn_banknums[i] != -1; i++) {
+        num_cart_banks++;
+    }
+
+    for (i = 0; i < num_cart_banks; i++) {
+        lib_free(dyn_banknames[NUM_BASE_BANKS + i]);
+    }
+    lib_free(dyn_banknames);
+    lib_free(dyn_banknums);
+    lib_free(dyn_bankindex);
+    lib_free(dyn_bankflags);
+
+    dyn_banknames = NULL;
+    dyn_banknums = NULL;
+    dyn_bankindex = NULL;
+    dyn_bankflags = NULL;
+}
+
+static void rebuild_bank_arrays(void)
+{
+    cart_bank_info_t *cart;
+    int total_cart_banks = 0;
+    int total, next_bank_num, i, j;
+
+    free_bank_arrays();
+
+    next_bank_num = CART_BANKS_START;
+    for (cart = cartridge_bank_list(); cart != NULL; cart = cart->next) {
+        cart->first_bank_num = next_bank_num;
+        next_bank_num += cart->num_banks;
+        total_cart_banks += cart->num_banks;
+    }
+
+    if (total_cart_banks == 0) {
+        cached_generation = cartridge_bank_generation();
+        return;
+    }
+
+    total = NUM_BASE_BANKS + total_cart_banks;
+
+    dyn_banknames = lib_malloc((size_t)(total + 1) * sizeof(char *));
+    dyn_banknums  = lib_malloc((size_t)(total + 1) * sizeof(int));
+    dyn_bankindex = lib_malloc((size_t)(total + 1) * sizeof(int));
+    dyn_bankflags = lib_malloc((size_t)(total + 1) * sizeof(int));
+
+    for (i = 0; i < NUM_BASE_BANKS; i++) {
+        dyn_banknames[i] = (char *)base_banknames[i];
+        dyn_banknums[i]  = base_banknums[i];
+        dyn_bankindex[i] = base_bankindex[i];
+        dyn_bankflags[i] = base_bankflags[i];
+    }
+
+    j = NUM_BASE_BANKS;
+    for (cart = cartridge_bank_list(); cart != NULL; cart = cart->next) {
+        int k;
+
+        for (k = 0; k < cart->num_banks; k++) {
+            char name[16];
+            int flags = MEM_BANK_ISARRAY;
+
+            snprintf(name, sizeof(name), "%s%02x", cart->prefix, (unsigned int)k);
+            dyn_banknames[j] = lib_strdup(name);
+            dyn_banknums[j]  = cart->first_bank_num + k;
+            dyn_bankindex[j] = k;
+
+            if (k == 0) {
+                flags |= MEM_BANK_ISARRAYFIRST;
+            }
+            if (k == cart->num_banks - 1) {
+                flags |= MEM_BANK_ISARRAYLAST;
+            }
+            dyn_bankflags[j] = flags;
+            j++;
+        }
+    }
+
+    dyn_banknames[total] = NULL;
+    dyn_banknums[total]  = -1;
+    dyn_bankindex[total] = -1;
+    dyn_bankflags[total] = -1;
+
+    cached_generation = cartridge_bank_generation();
+}
+
+static void check_rebuild_bank_arrays(void)
+{
+    if (cartridge_bank_generation() != cached_generation) {
+        rebuild_bank_arrays();
+    }
+}
+
+static cart_bank_info_t *find_cart_for_bank(int bank)
+{
+    cart_bank_info_t *cart;
+
+    for (cart = cartridge_bank_list(); cart != NULL; cart = cart->next) {
+        if (bank >= cart->first_bank_num
+            && bank < cart->first_bank_num + cart->num_banks) {
+            return cart;
+        }
+    }
+    return NULL;
+}
 
 const char **mem_bank_list(void)
 {
-    return banknames;
+    check_rebuild_bank_arrays();
+    return (const char **)(dyn_banknames ? dyn_banknames : (char **)base_banknames);
 }
 
-const int *mem_bank_list_nos(void) {
-    return banknums;
+const int *mem_bank_list_nos(void)
+{
+    check_rebuild_bank_arrays();
+    return dyn_banknums ? dyn_banknums : base_banknums;
 }
 
 /* return bank number for a given literal bank name */
 int mem_bank_from_name(const char *name)
 {
+    const char **names;
+    const int *nums;
     int i = 0;
 
-    while (banknames[i]) {
-        if (!strcmp(name, banknames[i])) {
-            return banknums[i];
+    check_rebuild_bank_arrays();
+    names = (const char **)(dyn_banknames ? dyn_banknames : (char **)base_banknames);
+    nums  = dyn_banknums ? dyn_banknums : base_banknums;
+
+    while (names[i]) {
+        if (!strcmp(name, names[i])) {
+            return nums[i];
         }
         i++;
     }
@@ -1277,11 +1414,17 @@ int mem_bank_from_name(const char *name)
 /* return current index for a given bank */
 int mem_bank_index_from_bank(int bank)
 {
+    const int *nums;
+    const int *idx;
     int i = 0;
 
-    while (banknums[i] > -1) {
-        if (banknums[i] == bank) {
-            return bankindex[i];
+    check_rebuild_bank_arrays();
+    nums = dyn_banknums ? dyn_banknums : base_banknums;
+    idx  = dyn_bankindex ? dyn_bankindex : base_bankindex;
+
+    while (nums[i] > -1) {
+        if (nums[i] == bank) {
+            return idx[i];
         }
         i++;
     }
@@ -1290,24 +1433,41 @@ int mem_bank_index_from_bank(int bank)
 
 int mem_bank_flags_from_bank(int bank)
 {
+    const int *nums;
+    const int *flags;
     int i = 0;
 
-    while (banknums[i] > -1) {
-        if (banknums[i] == bank) {
-            return bankflags[i];
+    check_rebuild_bank_arrays();
+    nums  = dyn_banknums ? dyn_banknums : base_banknums;
+    flags = dyn_bankflags ? dyn_bankflags : base_bankflags;
+
+    while (nums[i] > -1) {
+        if (nums[i] == bank) {
+            return flags[i];
         }
         i++;
     }
     return -1;
 }
 
-int     mem_get_current_bank_config(void) {
+int mem_get_current_bank_config(void) {
     return mem_config;
 }
 
 /* read memory with side-effects */
 uint8_t mem_bank_read(int bank, uint16_t addr, void *context)
 {
+    cart_bank_info_t *cart;
+
+    /* Cartridge RAM banks. */
+    if (bank >= CART_BANKS_START) {
+        cart = find_cart_for_bank(bank);
+        if (cart != NULL) {
+            unsigned int off = ((unsigned int)(bank - cart->first_bank_num) << 16) | addr;
+            return cart->read(off);
+        }
+    }
+
     switch (bank) {
         case 0:                   /* current */
             return mem_read(addr);
@@ -1392,6 +1552,17 @@ uint8_t mem_peek_with_config(int config, uint16_t addr, void *context) {
 
 uint8_t mem_bank_peek(int bank, uint16_t addr, void *context)
 {
+    cart_bank_info_t *cart;
+
+    /* Cartridge RAM banks. */
+    if (bank >= CART_BANKS_START) {
+        cart = find_cart_for_bank(bank);
+        if (cart != NULL) {
+            unsigned int off = ((unsigned int)(bank - cart->first_bank_num) << 16) | addr;
+            return cart->read(off);
+        }
+    }
+
     switch (bank) {
         case 0: /* CPU */
             return mem_peek_with_config(mem_config, addr, context);
@@ -1421,6 +1592,18 @@ uint8_t mem_bank_peek(int bank, uint16_t addr, void *context)
 
 void mem_bank_write(int bank, uint16_t addr, uint8_t byte, void *context)
 {
+    cart_bank_info_t *cart;
+
+    /* Cartridge RAM banks. */
+    if (bank >= CART_BANKS_START) {
+        cart = find_cart_for_bank(bank);
+        if (cart != NULL && cart->write != NULL) {
+            unsigned int off = ((unsigned int)(bank - cart->first_bank_num) << 16) | addr;
+            cart->write(off, byte);
+            return;
+        }
+    }
+
     switch (bank) {
         case 0:                   /* current */
             mem_store(addr, byte);

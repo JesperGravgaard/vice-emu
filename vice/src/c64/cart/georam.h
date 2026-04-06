@@ -48,6 +48,10 @@ int georam_write_snapshot_module(struct snapshot_s *s);
 int georam_cart_enabled(void);
 void georam_config_setup(uint8_t *rawcart);
 
+unsigned int georam_get_size(void);
+uint8_t georam_ram_read(unsigned int addr);
+void georam_ram_write(unsigned int addr, uint8_t value);
+
 const char *georam_get_file_name(void);
 int georam_bin_attach(const char *filename, uint8_t *rawcart);
 int georam_bin_save(const char *filename);

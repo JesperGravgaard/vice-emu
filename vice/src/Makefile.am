@@ -166,6 +166,7 @@ noinst_HEADERS = \
 	c128ui.h \
 	c64ui.h \
 	cartio.h \
+	cartridge_banks.h \
 	cartridge.h \
 	catweaselmkiii.h \
 	cbm2ui.h \
@@ -296,6 +297,7 @@ base_sources = \
 	attach.c \
 	autostart.c \
 	autostart-prg.c \
+	cartridge_banks.c \
 	cbmdos.c \
 	cbmimage.c \
 	charset.c \

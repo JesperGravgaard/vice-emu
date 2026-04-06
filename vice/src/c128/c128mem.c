@@ -55,10 +55,12 @@
 #include "keyboard.h"
 #include "keymap.h"
 #include "log.h"
+#include "lib.h"
 #include "machine.h"
 #include "maincpu.h"
 #include "monitor.h"
 #include "ram.h"
+#include "cartridge_banks.h"
 #include "reu.h"
 #include "sid.h"
 #include "sid-resources.h"
@@ -2224,12 +2226,18 @@ static uint8_t peek_bank_io(uint16_t addr)
 }
 
 /* Exported banked memory access functions for the monitor.  */
-#define MAXBANKS (5 + 2 + 5 + 2)
 
 /* FIXME: add ram00 bank, make 'ram' bank always show selected ram bank, ram00
  * and ram01 always physical ram bank */
 
-static const char *banknames128[MAXBANKS + 1] = {
+/* Base banks for 128K mode (11 named entries + sentinel). */
+#define NUM_BASE_BANKS_128 12  /* "default" + 11 banks */
+#define NUM_BASE_BANKS_256 14  /* "default" + 13 banks (2 extra ram banks) */
+
+/* First bank number after the base banks in 256-mode (highest base = bank256_vdc = 12). */
+#define CART_BANKS_START 13
+
+static const char *base_banknames128[NUM_BASE_BANKS_128 + 1] = {
     "default",
     "cpu",
     "ram",
@@ -2246,7 +2254,7 @@ static const char *banknames128[MAXBANKS + 1] = {
     NULL
 };
 
-static const char *banknames256[MAXBANKS + 1] = {
+ static const char *base_banknames256[NUM_BASE_BANKS_256 + 1] = {
     "default",
     "cpu",
     "ram",
@@ -2295,7 +2303,7 @@ enum {
     bank256_vdc
 };
 
-static const int banknums128[MAXBANKS + 1] = {
+static const int base_banknums128[NUM_BASE_BANKS_128 + 1] = {
     bank128_cpu, /* default */
     bank128_cpu,
     bank128_ram,
@@ -2311,7 +2319,7 @@ static const int banknums128[MAXBANKS + 1] = {
     -1
 };
 
-static const int banknums256[MAXBANKS + 1] = {
+static const int base_banknums256[NUM_BASE_BANKS_256 + 1] = {
     bank256_cpu, /* default */
     bank256_cpu,
     bank256_ram,
@@ -2329,25 +2337,25 @@ static const int banknums256[MAXBANKS + 1] = {
     -1
 };
 
-static const int bankindex128[MAXBANKS + 1] = {
+static const int base_bankindex128[NUM_BASE_BANKS_128 + 1] = {
+    -1, 
+    -1, 
+    -1, 
+    -1, 
     -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    0,
+    0, 
     1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
+    -1, 
+    -1, 
+    -1, 
+    -1, 
+    -1, 
     -1
 };
 
-static const int bankindex256[MAXBANKS + 1] = {
-    -1,
-    -1,
+static const int base_bankindex256[NUM_BASE_BANKS_256 + 1] = {
+    -1, 
+    -1, 
     -1,
     -1,
     -1,
@@ -2363,68 +2371,234 @@ static const int bankindex256[MAXBANKS + 1] = {
     -1
 };
 
-static const int bankflags128[MAXBANKS + 1] = {
-    0,
-    0,
-    0,
-    0,
+static const int base_bankflags128[NUM_BASE_BANKS_128 + 1] = {
+    0, 
+    0, 
+    0, 
+    0, 
     0,
     MEM_BANK_ISARRAY | MEM_BANK_ISARRAYFIRST,
     MEM_BANK_ISARRAY | MEM_BANK_ISARRAYLAST,
-    0,
-    0,
-    0,
-    0,
-    0,
+    0, 
+    0, 
+    0, 
+    0, 
+    0, 
     -1
 };
 
-static const int bankflags256[MAXBANKS + 1] = {
+static const int base_bankflags256[NUM_BASE_BANKS_256 + 1] = {
     0,
     0,
-    0,
-    0,
+    0, 
+    0, 
     0,
     MEM_BANK_ISARRAY | MEM_BANK_ISARRAYFIRST,
     MEM_BANK_ISARRAY,
     MEM_BANK_ISARRAY,
     MEM_BANK_ISARRAY | MEM_BANK_ISARRAYLAST,
-    0,
-    0,
-    0,
-    0,
-    0,
+    0, 
+    0, 
+    0, 
+    0, 
+    0, 
     -1
 };
+
+
+/* Dynamic arrays rebuilt when the cartridge bank registry or c128_full_banks changes. */
+static char **dyn_banknames = NULL;
+static int *dyn_banknums = NULL;
+static int *dyn_bankindex = NULL;
+static int *dyn_bankflags = NULL;
+
+/* Generation counter cached from the last rebuild. */
+static unsigned int cached_generation = (unsigned int)-1;
+/* c128_full_banks value at last rebuild, so a mode switch also triggers rebuild. */
+static int cached_full_banks = -1;
+
+static void free_bank_arrays(void)
+{
+    int num_base, i, num_cart_banks;
+
+    if (dyn_banknames == NULL) {
+        return;
+    }
+
+    num_base = cached_full_banks ? NUM_BASE_BANKS_256 : NUM_BASE_BANKS_128;
+
+    /* count cart bank entries (total length minus base) */
+    num_cart_banks = 0;
+    for (i = num_base; dyn_banknums[i] != -1; i++) {
+        num_cart_banks++;
+    }
+
+    /* free dynamically allocated name strings for cart banks */
+    for (i = 0; i < num_cart_banks; i++) {
+        lib_free(dyn_banknames[num_base + i]);
+    }
+    lib_free(dyn_banknames);
+    lib_free(dyn_banknums);
+    lib_free(dyn_bankindex);
+    lib_free(dyn_bankflags);
+
+    dyn_banknames = NULL;
+    dyn_banknums = NULL;
+    dyn_bankindex = NULL;
+    dyn_bankflags = NULL;
+}
+
+static void rebuild_bank_arrays(void)
+{
+    cart_bank_info_t *cart;
+    int num_base, total_cart_banks, total, next_bank_num, i, j, k;
+    const char **base_names;
+    const int *base_nums;
+    const int *base_idx;
+    const int *base_flags;
+
+    free_bank_arrays();
+
+    if (c128_full_banks) {
+        num_base   = NUM_BASE_BANKS_256;
+        base_names = base_banknames256;
+        base_nums  = base_banknums256;
+        base_idx   = base_bankindex256;
+        base_flags = base_bankflags256;
+    } else {
+        num_base   = NUM_BASE_BANKS_128;
+        base_names = base_banknames128;
+        base_nums  = base_banknums128;
+        base_idx   = base_bankindex128;
+        base_flags = base_bankflags128;
+    }
+
+    /* count total cart banks and assign first_bank_num */
+    total_cart_banks = 0;
+    next_bank_num = CART_BANKS_START;
+    for (cart = cartridge_bank_list(); cart != NULL; cart = cart->next) {
+        cart->first_bank_num = next_bank_num;
+        next_bank_num += cart->num_banks;
+        total_cart_banks += cart->num_banks;
+    }
+
+    cached_generation = cartridge_bank_generation();
+    cached_full_banks = c128_full_banks;
+
+    if (total_cart_banks == 0) {
+        /* No cartridge banks -- use static base arrays. */
+        return;
+    }
+
+    total = num_base + total_cart_banks;
+
+    dyn_banknames = lib_malloc((size_t)(total + 1) * sizeof(char *));
+    dyn_banknums  = lib_malloc((size_t)(total + 1) * sizeof(int));
+    dyn_bankindex = lib_malloc((size_t)(total + 1) * sizeof(int));
+    dyn_bankflags = lib_malloc((size_t)(total + 1) * sizeof(int));
+
+    /* Copy base entries (string literals, not allocated). */
+    for (i = 0; i < num_base; i++) {
+        dyn_banknames[i] = (char *)base_names[i];
+        dyn_banknums[i]  = base_nums[i];
+        dyn_bankindex[i] = base_idx[i];
+        dyn_bankflags[i] = base_flags[i];
+    }
+
+    /* Append cart banks. */
+    j = num_base;
+    for (cart = cartridge_bank_list(); cart != NULL; cart = cart->next) {
+        for (k = 0; k < cart->num_banks; k++) {
+            char name[16];
+            int flags = MEM_BANK_ISARRAY;
+
+            snprintf(name, sizeof(name), "%s%02x", cart->prefix, (unsigned int)k);
+            dyn_banknames[j] = lib_strdup(name);
+            dyn_banknums[j]  = cart->first_bank_num + k;
+            dyn_bankindex[j] = k;
+
+            if (k == 0) {
+                flags |= MEM_BANK_ISARRAYFIRST;
+            }
+            if (k == cart->num_banks - 1) {
+                flags |= MEM_BANK_ISARRAYLAST;
+            }
+            dyn_bankflags[j] = flags;
+            j++;
+        }
+    }
+
+    /* Sentinels. */
+    dyn_banknames[total] = NULL;
+    dyn_banknums[total]  = -1;
+    dyn_bankindex[total] = -1;
+    dyn_bankflags[total] = -1;
+}
+
+static void check_rebuild_bank_arrays(void)
+{
+    if (cartridge_bank_generation() != cached_generation
+        || c128_full_banks != cached_full_banks) {
+        rebuild_bank_arrays();
+    }
+}
+
+/* Find the registered cartridge that owns a given bank number. */
+static cart_bank_info_t *find_cart_for_bank(int bank)
+{
+    cart_bank_info_t *cart;
+
+    for (cart = cartridge_bank_list(); cart != NULL; cart = cart->next) {
+        if (bank >= cart->first_bank_num
+            && bank < cart->first_bank_num + cart->num_banks) {
+            return cart;
+        }
+    }
+    return NULL;
+}
 
 const char **mem_bank_list(void)
 {
-    return (c128_full_banks) ? banknames256 : banknames128;
+    check_rebuild_bank_arrays();
+    if (dyn_banknames) {
+        return (const char **)dyn_banknames;
+    }
+    return c128_full_banks ? base_banknames256 : base_banknames128;
 }
 
-const int *mem_bank_list_nos(void) {
-    return (c128_full_banks) ? banknums256 : banknums128;
+const int *mem_bank_list_nos(void)
+{
+    check_rebuild_bank_arrays();
+    if (dyn_banknums) {
+        return dyn_banknums;
+    }
+    return c128_full_banks ? base_banknums256 : base_banknums128;
 }
 
 /* return bank number for a given literal bank name */
 int mem_bank_from_name(const char *name)
 {
+    const char **names;
+    const int *nums;
     int i = 0;
 
-    if (c128_full_banks) {
-        while (banknames256[i]) {
-            if (!strcmp(name, banknames256[i])) {
-                return banknums256[i];
-            }
-            i++;
-        }
+    check_rebuild_bank_arrays();
+    if (dyn_banknames) {
+        names = (const char **)dyn_banknames;
+        nums  = dyn_banknums;
+    } else if (c128_full_banks) {
+        names = base_banknames256;
+        nums  = base_banknums256;
     } else {
-        while (banknames128[i]) {
-            if (!strcmp(name, banknames128[i])) {
-                return banknums128[i];
-            }
-            i++;
+        names = base_banknames128;
+        nums  = base_banknums128;
+    }
+
+    while (names[i]) {
+        if (!strcmp(name, names[i])) {
+            return nums[i];
         }
+        i++;
     }
     return -1;
 }
@@ -2432,44 +2606,54 @@ int mem_bank_from_name(const char *name)
 /* return current index for a given bank */
 int mem_bank_index_from_bank(int bank)
 {
+    const int *nums;
+    const int *idx;
     int i = 0;
 
-    if (c128_full_banks) {
-        while (banknums256[i] > -1) {
-            if (banknums256[i] == bank) {
-                return bankindex256[i];
-            }
-            i++;
-        }
+    check_rebuild_bank_arrays();
+    if (dyn_banknums) {
+        nums = dyn_banknums;
+        idx  = dyn_bankindex;
+    } else if (c128_full_banks) {
+        nums = base_banknums256;
+        idx  = base_bankindex256;
     } else {
-        while (banknums128[i] > -1) {
-            if (banknums128[i] == bank) {
-                return bankindex128[i];
-            }
-            i++;
+        nums = base_banknums128;
+        idx  = base_bankindex128;
+    }
+
+    while (nums[i] > -1) {
+        if (nums[i] == bank) {
+            return idx[i];
         }
+        i++;
     }
     return -1;
 }
 
 int mem_bank_flags_from_bank(int bank)
 {
+    const int *nums;
+    const int *flags;
     int i = 0;
 
-    if (c128_full_banks) {
-        while (banknums256[i] > -1) {
-            if (banknums256[i] == bank) {
-                return bankflags256[i];
-            }
-            i++;
-        }
+    check_rebuild_bank_arrays();
+    if (dyn_banknums) {
+        nums  = dyn_banknums;
+        flags = dyn_bankflags;
+    } else if (c128_full_banks) {
+        nums  = base_banknums256;
+        flags = base_bankflags256;
     } else {
-        while (banknums128[i] > -1) {
-            if (banknums128[i] == bank) {
-                return bankflags128[i];
-            }
-            i++;
+        nums  = base_banknums128;
+        flags = base_bankflags128;
+    }
+
+    while (nums[i] > -1) {
+        if (nums[i] == bank) {
+            return flags[i];
         }
+        i++;
     }
     return -1;
 }
@@ -2505,7 +2689,17 @@ static int mem_bank_translate_128_to_256(int bank)
 
 uint8_t mem_bank_read(int bank, uint16_t addr, void *context)
 {
+    cart_bank_info_t *cart;
     int real_bank = bank;
+
+    /* Cartridge RAM banks -- dispatch before 128->256 translation. */
+    if (bank >= CART_BANKS_START) {
+        cart = find_cart_for_bank(bank);
+        if (cart != NULL) {
+            unsigned int off = ((unsigned int)(bank - cart->first_bank_num) << 16) | addr;
+            return cart->read(off);
+        }
+    }
 
     if (!c128_full_banks) {
         real_bank = mem_bank_translate_128_to_256(bank);
@@ -2788,7 +2982,17 @@ uint8_t mem_peek_with_config(int config, uint16_t addr, void *context)
 /* used by monitor if sfx off */
 uint8_t mem_bank_peek(int bank, uint16_t addr, void *context)
 {
+    cart_bank_info_t *cart;
     int real_bank = bank;
+
+    /* Cartridge RAM banks -- dispatch before 128->256 translation. */
+    if (bank >= CART_BANKS_START) {
+        cart = find_cart_for_bank(bank);
+        if (cart != NULL) {
+            unsigned int off = ((unsigned int)(bank - cart->first_bank_num) << 16) | addr;
+            return cart->read(off);
+        }
+    }
 
     if (!c128_full_banks) {
         real_bank = mem_bank_translate_128_to_256(bank);
@@ -2823,7 +3027,18 @@ uint8_t mem_bank_peek(int bank, uint16_t addr, void *context)
 
 void mem_bank_write(int bank, uint16_t addr, uint8_t byte, void *context)
 {
+    cart_bank_info_t *cart;
     int real_bank = bank;
+
+    /* Cartridge RAM banks -- dispatch before 128->256 translation. */
+    if (bank >= CART_BANKS_START) {
+        cart = find_cart_for_bank(bank);
+        if (cart != NULL && cart->write != NULL) {
+            unsigned int off = ((unsigned int)(bank - cart->first_bank_num) << 16) | addr;
+            cart->write(off, byte);
+            return;
+        }
+    }
 
     if (!c128_full_banks) {
         real_bank = mem_bank_translate_128_to_256(bank);

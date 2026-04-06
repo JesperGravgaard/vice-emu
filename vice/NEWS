@@ -52,6 +52,12 @@ AND FIXING FURTHER GAMECONTROLLER RELATED ISSUES - PLEASE GET IN TOUCH!
 ** general
 ----------
 
+- The built-in monitor now exposes REU and GeoRAM memory as named bank arrays
+  (e.g. "reu00", "reu01", ... or "geo00", "geo01", ...) on x64, x64sc and
+  x128.  The number of banks shown matches the currently configured RAM size.
+  A generic API (cartridge_banks.h) allows further cartridges to register
+  themselves in the future without changes to the monitor or mem modules.
+
 - Renamed (virtual/trap) device related settings
 
     Specifically the command line options:
