@@ -1,6 +1,9 @@
 /*
  * cartridge_banks.h -- Generic monitor bank registration for cartridge RAM.
  *
+ * Written by
+ *  Jesper Balman Gravgaard <jesper@balmangravgaard.dk>
+ *
  * This file is part of VICE, the Versatile Commodore Emulator.
  * See README for copyright notice.
  *
