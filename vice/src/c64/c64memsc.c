@@ -1220,7 +1220,7 @@ static uint8_t peek_bank_io(uint16_t addr)
 #define NUM_BASE_BANKS 6   /* default, cpu, ram, rom, io, cart */
 #define CART_BANKS_START 5 /* first bank number after the base banks */
 
-static const char *base_banknames[] = {
+static const char *base_banknames[NUM_BASE_BANKS + 1] = {
     "default",
     "cpu",   /* #0 */
     "ram",   /* #1 */
@@ -1231,9 +1231,9 @@ static const char *base_banknames[] = {
     NULL
 };
 
-static const int base_banknums[]  = { 0, 0, 1, 2, 3, 4, -1 };
-static const int base_bankindex[] = { -1, -1, -1, -1, -1, -1, -1 };
-static const int base_bankflags[] = { 0, 0, 0, 0, 0, 0, -1 };
+static const int base_banknums [NUM_BASE_BANKS + 1] = { 0, 0, 1, 2, 3, 4, -1 };
+static const int base_bankindex[NUM_BASE_BANKS + 1] = { -1, -1, -1, -1, -1, -1, -1 };
+static const int base_bankflags[NUM_BASE_BANKS + 1] = { 0, 0, 0, 0, 0, 0, -1 };
 
 /* Dynamic arrays rebuilt when the cartridge bank registry changes. */
 static char **dyn_banknames = NULL;

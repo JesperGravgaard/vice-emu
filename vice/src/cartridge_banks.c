@@ -23,7 +23,7 @@
 
 #include "vice.h"
 
-#include <stdlib.h>
+#include <stddef.h>
 
 #include "cartridge_banks.h"
 

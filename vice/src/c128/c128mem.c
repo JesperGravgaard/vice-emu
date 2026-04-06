@@ -2338,24 +2338,24 @@ static const int base_banknums256[NUM_BASE_BANKS_256 + 1] = {
 };
 
 static const int base_bankindex128[NUM_BASE_BANKS_128 + 1] = {
-    -1, 
-    -1, 
-    -1, 
-    -1, 
     -1,
-    0, 
+    -1,
+    -1,
+    -1,
+    -1,
+    0,
     1,
-    -1, 
-    -1, 
-    -1, 
-    -1, 
-    -1, 
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
     -1
 };
 
 static const int base_bankindex256[NUM_BASE_BANKS_256 + 1] = {
-    -1, 
-    -1, 
+    -1,
+    -1,
     -1,
     -1,
     -1,
@@ -2372,36 +2372,36 @@ static const int base_bankindex256[NUM_BASE_BANKS_256 + 1] = {
 };
 
 static const int base_bankflags128[NUM_BASE_BANKS_128 + 1] = {
-    0, 
-    0, 
-    0, 
-    0, 
+    0,
+    0,
+    0,
+    0,
     0,
     MEM_BANK_ISARRAY | MEM_BANK_ISARRAYFIRST,
     MEM_BANK_ISARRAY | MEM_BANK_ISARRAYLAST,
-    0, 
-    0, 
-    0, 
-    0, 
-    0, 
+    0,
+    0,
+    0,
+    0,
+    0,
     -1
 };
 
 static const int base_bankflags256[NUM_BASE_BANKS_256 + 1] = {
     0,
     0,
-    0, 
-    0, 
+    0,
+    0,
     0,
     MEM_BANK_ISARRAY | MEM_BANK_ISARRAYFIRST,
     MEM_BANK_ISARRAY,
     MEM_BANK_ISARRAY,
     MEM_BANK_ISARRAY | MEM_BANK_ISARRAYLAST,
-    0, 
-    0, 
-    0, 
-    0, 
-    0, 
+    0,
+    0,
+    0,
+    0,
+    0,
     -1
 };
 
