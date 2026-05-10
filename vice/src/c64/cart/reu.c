@@ -353,7 +353,6 @@ void reu_ram_write(unsigned int addr, uint8_t value)
 static cart_bank_info_t reu_bank_info = {
     "reu",          /* prefix */
     0,              /* num_banks -- set on enable/resize */
-    0,              /* total_size -- set on enable/resize */
     reu_ram_read,
     reu_ram_write,
     0,              /* first_bank_num -- assigned by registry */
@@ -395,7 +394,6 @@ static int set_reu_enabled(int value, void *param)
         reu_list_item = io_source_register(&reu_io2_device);
         reu_enabled = 1;
         reu_bank_info.num_banks = (int)(reu_size >> 16);
-        reu_bank_info.total_size = reu_size;
         cartridge_bank_register(&reu_bank_info);
     }
     return 0;
@@ -489,7 +487,6 @@ static int set_reu_size(int val, void *param)
     if (reu_enabled) {
         reu_activate();
         reu_bank_info.num_banks = (int)(reu_size >> 16);
-        reu_bank_info.total_size = reu_size;
         cartridge_bank_register(&reu_bank_info);
     }
 

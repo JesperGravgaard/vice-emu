@@ -231,7 +231,6 @@ void georam_ram_write(unsigned int addr, uint8_t value)
 static cart_bank_info_t georam_bank_info = {
     "geo",              /* prefix */
     0,                  /* num_banks -- set on enable/resize */
-    0,                  /* total_size -- set on enable/resize */
     georam_ram_read,
     georam_ram_write,
     0,                  /* first_bank_num -- assigned by registry */
@@ -408,7 +407,6 @@ static int set_georam_enabled(int value, void *param)
         georam_io2_list_item = io_source_register(&georam_io2_device);
         georam_enabled = 1;
         georam_bank_info.num_banks = (int)((unsigned int)georam_size >> 16);
-        georam_bank_info.total_size = (unsigned int)georam_size;
         cartridge_bank_register(&georam_bank_info);
     }
     return 0;
@@ -438,7 +436,6 @@ static int set_georam_size(int val, void *param)
         georam_size = georam_size_kb << 10;
         georam_activate();
         georam_bank_info.num_banks = (int)((unsigned int)georam_size >> 16);
-        georam_bank_info.total_size = (unsigned int)georam_size;
         cartridge_bank_register(&georam_bank_info);
     } else {
         georam_size_kb = val;

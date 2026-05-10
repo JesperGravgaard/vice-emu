@@ -1,5 +1,5 @@
 /*
- * cartridge_banks.h -- Generic monitor bank registration for cartridge RAM.
+ * cartridge_banks.h -- Generic monitor bank registration for cartridge memory.
  *
  * Written by
  *  Jesper Balman Gravgaard <jesper@balmangravgaard.dk>
@@ -29,46 +29,62 @@
 
 #include "types.h"
 
-/*! \brief Describes a cartridge RAM region exposed as monitor banks.
+/*! \brief Describes a cartridge memory region exposed as monitor banks.
  *
- * Each cartridge or expansion that wants to expose its RAM to the monitor
- * allocates one of these structs (typically as a static variable), fills
- * in the fields, and calls cartridge_bank_register().  The monitor bank
- * system then includes the cartridge's banks in its bank list without
- * needing to know anything about the specific cartridge.
+ * The registry is for cartridge (or internal-expansion) memory that is
+ * not always fully visible in the CPU address space -- for example RAM
+ * behind an I/O window, or paged ROM where only the currently selected
+ * bank is mapped.  The whole backing buffer is exposed linearly,
+ * regardless of the cartridge's own banking state.
  *
- * Banks are always presented as 64 KiB pages.  The read/write functions
- * receive a linear byte address: (bank_index << 16) | offset.
+ * Cartridges with all memory permanently mapped (e.g. simple 8 KiB ROMs,
+ * Expert SRAM) do not need to register; they are already covered by the
+ * existing @code{cart} bank.
  *
- * The write pointer may be NULL for read-only regions (e.g. flash ROM).
+ * A single cartridge may register more than one of these structs to
+ * expose distinct regions.  For example MMC Replay registers two: one
+ * for its 512 KiB Flash ROM, one for its 512 KiB SRAM, with separate
+ * prefixes (e.g. "mmcrf" and "mmcrr").
+ *
+ * Banks are always 64 KiB pages.  The read/write functions take a
+ * linear byte address @code{(bank_index << 16) | offset} and access the
+ * backing buffer directly -- bypassing any flash command sequences,
+ * bank-select latches, etc. that the cartridge would normally apply for
+ * CPU accesses.
+ *
+ * The write pointer may be NULL for true read-only regions (mask ROM).
+ * Flash ROM should provide a write that hits the buffer directly so the
+ * monitor's @code{>} (poke) command can modify bytes for debugging.
  */
 typedef struct cart_bank_info_s {
-    /*! \brief Short prefix used to form bank names, e.g. "reu" -> "reu00".
+    /*! \brief Short lowercase prefix used to form bank names.
      *
-     * Must be unique across all registered cartridges.  Use lowercase. */
+     * Bank names are formed as @code{prefix%02x}, so a prefix of length
+     * N produces names of length N+2.  Must be unique across all
+     * registered structs (a cart with two regions uses two prefixes). */
     const char *prefix;
 
     /*! \brief Number of 64 KiB banks exposed. */
     int num_banks;
 
-    /*! \brief Total RAM size in bytes (num_banks * 65536). */
-    unsigned int total_size;
-
-    /*! \brief Read one byte from a linear address within this cartridge RAM.
+    /*! \brief Read one byte from a linear address within this region.
      *
      * \param addr  Linear byte address: (bank_index << 16) | page_offset.
      * \return      Byte value, or 0 if out of range. */
     uint8_t (*read)(unsigned int addr);
 
-    /*! \brief Write one byte to a linear address within this cartridge RAM.
+    /*! \brief Write one byte to a linear address within this region.
      *
-     * May be NULL for read-only regions.
+     * NULL for true read-only regions (mask ROM); the monitor's poke is
+     * silently dropped.  Flash carts should provide a write that
+     * modifies the backing buffer directly, ignoring any flash command
+     * sequence logic the cart applies to normal CPU writes.
      *
      * \param addr   Linear byte address: (bank_index << 16) | page_offset.
      * \param value  Byte value to write. */
     void (*write)(unsigned int addr, uint8_t value);
 
-    /*! \brief Bank number assigned to the first bank of this cartridge.
+    /*! \brief Bank number assigned to the first bank of this region.
      *
      * Set by cartridge_bank_register(); do not set manually. */
     int first_bank_num;
@@ -77,17 +93,17 @@ typedef struct cart_bank_info_s {
     struct cart_bank_info_s *next;
 } cart_bank_info_t;
 
-/*! \brief Register a cartridge RAM region with the monitor bank system.
+/*! \brief Register a cartridge memory region with the monitor bank system.
  *
- * Idempotent: if the info pointer is already registered, the existing
- * entry is updated in place and the generation counter is bumped.
- * Call this on cartridge enable and on resize (after updating num_banks
- * and total_size).
+ * Idempotent: if the info pointer is already registered, the generation
+ * counter is bumped (useful after a resize where num_banks changed).
+ * Call on cartridge enable, on resize (after updating num_banks), and
+ * once for each region of a multi-region cart.
  *
  * \param info  Pointer to a caller-owned cart_bank_info_t. */
 void cartridge_bank_register(cart_bank_info_t *info);
 
-/*! \brief Unregister a cartridge RAM region from the monitor bank system.
+/*! \brief Unregister a cartridge memory region from the monitor bank system.
  *
  * Safe to call even if the info is not currently registered.
  *
@@ -101,8 +117,8 @@ cart_bank_info_t *cartridge_bank_list(void);
 
 /*! \brief Return a generation counter that increases on every change.
  *
- * Machine mem modules cache this value and call rebuild_bank_arrays()
- * when it differs from their cached copy. */
+ * Consumers (machine mem modules via mem_bank_dynamic) cache this value
+ * and rebuild their bank arrays when it differs from the cached copy. */
 unsigned int cartridge_bank_generation(void);
 
 #endif
