@@ -43,6 +43,7 @@
 #include "machine.h"
 #include "maincpu.h"
 #include "mem.h"
+#include "mem_bank_dynamic.h"
 #include "monitor.h"
 #include "pet.h"
 #include "pet-resources.h"
@@ -1906,6 +1907,8 @@ static uint8_t peek_bank_io(uint16_t addr)
 
 /* Exported banked memory access functions for the monitor.  */
 #define MAXBANKS (7)
+#define NUM_BASE_BANKS_REGULAR  6   /* default, cpu, ram, rom, io, extram */
+#define NUM_BASE_BANKS_SUPERPET 7   /* + 6809 */
 
 static const char *banknames_regular[MAXBANKS + 1] = {
     "default",
@@ -1951,63 +1954,73 @@ static const int banknums[MAXBANKS + 1] = {
 static const int bankindex[MAXBANKS + 1] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 static const int bankflags[MAXBANKS + 1] = { 0, 0, 0, 0, 0, 0, 0, -1 };
 
-const char **mem_bank_list(void)
+/* Two configs -- one per model -- selected at access time by
+   petres.model.superpet.  Each owns its own helper instance so the
+   cached arrays remain valid across mode switches. */
+static const mem_bank_dynamic_config_t bank_dyn_config_regular = {
+    .base_banknames   = banknames_regular,
+    .base_banknums    = banknums,
+    .base_bankindex   = bankindex,
+    .base_bankflags   = bankflags,
+    .num_base_banks   = NUM_BASE_BANKS_REGULAR,
+};
+static const mem_bank_dynamic_config_t bank_dyn_config_superpet = {
+    .base_banknames   = banknames_superpet,
+    .base_banknums    = banknums,
+    .base_bankindex   = bankindex,
+    .base_bankflags   = bankflags,
+    .num_base_banks   = NUM_BASE_BANKS_SUPERPET,
+};
+static mem_bank_dynamic_t *bank_dyn_regular;
+static mem_bank_dynamic_t *bank_dyn_superpet;
+
+static mem_bank_dynamic_t *get_bank_dyn(void)
 {
     if (petres.model.superpet) {
-        return banknames_superpet;
-    } else {
-        return banknames_regular;
+        if (bank_dyn_superpet == NULL) {
+            bank_dyn_superpet = mem_bank_dynamic_create(&bank_dyn_config_superpet);
+        }
+        return bank_dyn_superpet;
     }
+    if (bank_dyn_regular == NULL) {
+        bank_dyn_regular = mem_bank_dynamic_create(&bank_dyn_config_regular);
+    }
+    return bank_dyn_regular;
+}
+
+const char **mem_bank_list(void)
+{
+    return mem_bank_dynamic_list(get_bank_dyn());
 }
 
 const int *mem_bank_list_nos(void) {
-    return banknums;
+    return mem_bank_dynamic_list_nos(get_bank_dyn());
 }
 
 /* return bank number for a given literal bank name */
 int mem_bank_from_name(const char *name)
 {
-    int i = 0;
-    const char **banknames = mem_bank_list();
-
-    while (banknames[i]) {
-        if (!strcmp(name, banknames[i])) {
-            return banknums[i];
-        }
-        i++;
-    }
-    return -1;
+    return mem_bank_dynamic_from_name(get_bank_dyn(), name);
 }
 
 /* return current index for a given bank */
 int mem_bank_index_from_bank(int bank)
 {
-    int i = 0;
-
-    while (banknums[i] > -1) {
-        if (banknums[i] == bank) {
-            return bankindex[i];
-        }
-        i++;
-    }
-    return -1;
+    return mem_bank_dynamic_index_from_bank(get_bank_dyn(), bank);
 }
 
 int mem_bank_flags_from_bank(int bank)
 {
-    int i = 0;
-
-    while (banknums[i] > -1) {
-        if (banknums[i] == bank) {
-            return bankflags[i];
-        }
-        i++;
-    }
-    return -1;
+    return mem_bank_dynamic_flags_from_bank(get_bank_dyn(), bank);
 }
 
 uint8_t mem_bank_read(int bank, uint16_t addr, void *context)
 {
+    uint8_t v;
+    if (mem_bank_dynamic_try_read(get_bank_dyn(), bank, addr, &v)) {
+        return v;
+    }
+
     switch (bank) {
         case bank_cpu:      /* current */
             return mem_read(addr);
@@ -2040,6 +2053,11 @@ uint8_t mem_bank_read(int bank, uint16_t addr, void *context)
 /* used by monitor if sfx off */
 uint8_t mem_bank_peek(int bank, uint16_t addr, void *context)
 {
+    uint8_t v;
+    if (mem_bank_dynamic_try_read(get_bank_dyn(), bank, addr, &v)) {
+        return v;
+    }
+
     switch (bank) {
         case bank_cpu:      /* current */
             if ((petmem_map_reg & (FFF0_ENABLED|FFF0_IO_PEEK_THROUGH)) ==
@@ -2096,6 +2114,10 @@ uint8_t mem_peek_with_config(int config, uint16_t addr, void *context) {
 
 void mem_bank_write(int bank, uint16_t addr, uint8_t byte, void *context)
 {
+    if (mem_bank_dynamic_try_write(get_bank_dyn(), bank, addr, byte)) {
+        return;
+    }
+
     switch (bank) {
         case bank_cpu:      /* current */
             mem_store(addr, byte);

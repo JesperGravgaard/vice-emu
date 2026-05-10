@@ -47,6 +47,7 @@
 #include "machine.h"
 #include "main65816cpu.h"
 #include "mem.h"
+#include "mem_bank_dynamic.h"
 #include "monitor.h"
 #include "ram.h"
 #include "reu.h"
@@ -1878,13 +1879,30 @@ static const int bankflags[MAXBANKS + 1] =
     -2
 };
 
+static const mem_bank_dynamic_config_t bank_dyn_config = {
+    .base_banknames   = banknames,
+    .base_banknums    = banknums,
+    .base_bankindex   = bankindex,
+    .base_bankflags   = bankflags,
+    .num_base_banks   = MAXBANKS,
+};
+static mem_bank_dynamic_t *bank_dyn;
+
+static mem_bank_dynamic_t *get_bank_dyn(void)
+{
+    if (bank_dyn == NULL) {
+        bank_dyn = mem_bank_dynamic_create(&bank_dyn_config);
+    }
+    return bank_dyn;
+}
+
 const char **mem_bank_list(void)
 {
-    return banknames;
+    return mem_bank_dynamic_list(get_bank_dyn());
 }
 
 const int *mem_bank_list_nos(void) {
-    return banknums;
+    return mem_bank_dynamic_list_nos(get_bank_dyn());
 }
 
 #if 0
@@ -1900,47 +1918,27 @@ const int *mem_bank_list_flags(void) {
 /* return bank number for a given literal bank name */
 int mem_bank_from_name(const char *name)
 {
-    int i = 0;
-
-    while (banknames[i]) {
-        if (!strcmp(name, banknames[i])) {
-            return banknums[i];
-        }
-        i++;
-    }
-    return -1;
+    return mem_bank_dynamic_from_name(get_bank_dyn(), name);
 }
 
 /* return current index for a given bank */
 int mem_bank_index_from_bank(int bank)
 {
-    int i = 0;
-
-    while (banknums[i] > -1) {
-        if (banknums[i] == bank) {
-            return bankindex[i];
-        }
-        i++;
-    }
-    return -1;
+    return mem_bank_dynamic_index_from_bank(get_bank_dyn(), bank);
 }
 
 int mem_bank_flags_from_bank(int bank)
 {
-    int i = 0;
-
-    while (banknums[i] > -1) {
-        if (banknums[i] == bank) {
-            return bankflags[i];
-        }
-        i++;
-    }
-    return -1;
+    return mem_bank_dynamic_flags_from_bank(get_bank_dyn(), bank);
 }
 
 /* read memory with side-effects */
 uint8_t mem_bank_read(int bank, uint16_t addr, void *context)
 {
+    uint8_t v;
+    if (mem_bank_dynamic_try_read(get_bank_dyn(), bank, addr, &v)) {
+        return v;
+    }
     if ((bank >= 5) && (bank <= 6)) {
         return mem_sram[((bank - 5) << 16) + addr]; /* ram00..01 */
     }
@@ -1993,6 +1991,10 @@ uint8_t mem_bank_read(int bank, uint16_t addr, void *context)
 /* read memory without side-effects */
 uint8_t mem_bank_peek(int bank, uint16_t addr, void *context)
 {
+    uint8_t v;
+    if (mem_bank_dynamic_try_read(get_bank_dyn(), bank, addr, &v)) {
+        return v;
+    }
     if ((bank >= 5) && (bank <= 260)) {
         return mem_bank_read(bank, addr, context); /* ram00..ff */
     }
@@ -2033,6 +2035,9 @@ uint8_t mem_peek_with_config(int config, uint16_t addr, void *context) {
 
 void mem_bank_write(int bank, uint16_t addr, uint8_t byte, void *context)
 {
+    if (mem_bank_dynamic_try_write(get_bank_dyn(), bank, addr, byte)) {
+        return;
+    }
     if ((bank >= 5) && (bank <= 6)) {
         mem_sram[((bank - 5) << 16) + addr] = byte; /* ram00..01 */
         return;

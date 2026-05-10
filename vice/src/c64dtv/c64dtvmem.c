@@ -76,6 +76,7 @@
 #include "machine.h"
 #include "maincpu.h"
 #include "mem.h"
+#include "mem_bank_dynamic.h"
 #include "monitor.h"
 #include "ram.h"
 #include "sid.h"
@@ -1115,9 +1116,9 @@ void c64dtv_dmablit_store(uint16_t addr, uint8_t value)
 /* ------------------------------------------------------------------------- */
 
 /* Exported banked memory access functions for the monitor.  */
-#define MAXBANKS (6 + 0x20 + 0x20)
+#define NUM_BASE_BANKS    (6 + 0x20 + 0x20)   /* 6 standard + 32 internal RAM + 32 internal ROM */
 
-static const char *banknames[MAXBANKS + 1] =
+static const char *banknames[NUM_BASE_BANKS + 1] =
 {
     "default", "cpu", "ram", "rom", "io", "cart",
     /* by convention, a "bank array" has a 2-hex-digit bank index appended */
@@ -1132,7 +1133,7 @@ static const char *banknames[MAXBANKS + 1] =
     NULL
 };
 
-static const int banknums[MAXBANKS + 1] =
+static const int banknums[NUM_BASE_BANKS + 1] =
 {
     0, 0, 1, 2, 3, 4,
     5, 6, 7, 8, 9, 10, 11, 12,
@@ -1146,7 +1147,7 @@ static const int banknums[MAXBANKS + 1] =
     -1
 };
 
-static const int bankindex[MAXBANKS + 1] =
+static const int bankindex[NUM_BASE_BANKS + 1] =
 {
     -1, -1, -1, -1, -1, -1,
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -1160,7 +1161,7 @@ static const int bankindex[MAXBANKS + 1] =
     -1
 };
 
-static const int bankflags[MAXBANKS + 1] =
+static const int bankflags[NUM_BASE_BANKS + 1] =
 {
     0, 0, 0, 0, 0, 0,
     MEM_BANK_ISARRAY | MEM_BANK_ISARRAYFIRST, MEM_BANK_ISARRAY, MEM_BANK_ISARRAY, MEM_BANK_ISARRAY, MEM_BANK_ISARRAY, MEM_BANK_ISARRAY, MEM_BANK_ISARRAY, MEM_BANK_ISARRAY,
@@ -1174,60 +1175,57 @@ static const int bankflags[MAXBANKS + 1] =
     -1
 };
 
+static const mem_bank_dynamic_config_t bank_dyn_config = {
+    .base_banknames   = banknames,
+    .base_banknums    = banknums,
+    .base_bankindex   = bankindex,
+    .base_bankflags   = bankflags,
+    .num_base_banks   = NUM_BASE_BANKS,
+};
+static mem_bank_dynamic_t *bank_dyn;
+
+static mem_bank_dynamic_t *get_bank_dyn(void)
+{
+    if (bank_dyn == NULL) {
+        bank_dyn = mem_bank_dynamic_create(&bank_dyn_config);
+    }
+    return bank_dyn;
+}
+
 const char **mem_bank_list(void)
 {
-    return banknames;
+    return mem_bank_dynamic_list(get_bank_dyn());
 }
 
 const int *mem_bank_list_nos(void) {
-    return banknums;
+    return mem_bank_dynamic_list_nos(get_bank_dyn());
 }
 
 /* return bank number for a given literal bank name */
 int mem_bank_from_name(const char *name)
 {
-    int i = 0;
-
-    while (banknames[i]) {
-        if (!strcmp(name, banknames[i])) {
-            return banknums[i];
-        }
-        i++;
-    }
-    return -1;
+    return mem_bank_dynamic_from_name(get_bank_dyn(), name);
 }
 
 /* return current index for a given bank */
 int mem_bank_index_from_bank(int bank)
 {
-    int i = 0;
-
-    while (banknums[i] > -1) {
-        if (banknums[i] == bank) {
-            return bankindex[i];
-        }
-        i++;
-    }
-    return -1;
+    return mem_bank_dynamic_index_from_bank(get_bank_dyn(), bank);
 }
 
 int mem_bank_flags_from_bank(int bank)
 {
-    int i = 0;
-
-    while (banknums[i] > -1) {
-        if (banknums[i] == bank) {
-            return bankflags[i];
-        }
-        i++;
-    }
-    return -1;
+    return mem_bank_dynamic_flags_from_bank(get_bank_dyn(), bank);
 }
 
 uint8_t mem_bank_read(int bank, uint16_t addr, void *context)
 {
     int paddr;
+    uint8_t v;
 
+    if (mem_bank_dynamic_try_read(get_bank_dyn(), bank, addr, &v)) {
+        return v;
+    }
     if ((bank >= 5) && (bank <= 36)) {
         return mem_ram[((bank - 5) << 16) + addr]; /* ram00..1f */
     }
@@ -1357,6 +1355,9 @@ void mem_bank_write(int bank, uint16_t addr, uint8_t byte, void *context)
 {
     int paddr;
 
+    if (mem_bank_dynamic_try_write(get_bank_dyn(), bank, addr, byte)) {
+        return;
+    }
     if ((bank >= 5) && (bank <= 36)) { /* ram00..1f */
         mem_ram[((bank - 5) << 16) + addr] = byte;
         return;
