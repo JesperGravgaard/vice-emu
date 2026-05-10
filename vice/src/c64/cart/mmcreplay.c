@@ -2585,11 +2585,12 @@ void mmcreplay_powerup(void)
 
 /* ---------------------------------------------------------------------*/
 
-/* Monitor bank exposure.
+/* Linear memory view.
  *
  * MMC Replay holds 512 KiB Flash ROM and 512 KiB RAM that are otherwise
  * visible only one bank at a time through the cart's mapping registers.
- * Expose both as separate linear bank arrays.
+ * Register both as separate linear bank arrays so each region's full
+ * contents are reachable regardless of the current mapping.
  *
  * Flash writes go directly to the backing buffer, bypassing the flash
  * command sequence -- the linear view is for inspection and patching.

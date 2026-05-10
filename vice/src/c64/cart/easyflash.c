@@ -412,12 +412,12 @@ void easyflash_romh_store(uint16_t addr, uint8_t value)
 
 /* ---------------------------------------------------------------------*/
 
-/* Monitor bank exposure.
+/* Linear memory view.
  *
  * The two flash chips together hold 1 MiB that is otherwise visible only
- * 16 KiB at a time through the cart's bank-select register.  Expose both
- * chips as separate linear bank arrays so the monitor can see and edit
- * the entire flash regardless of which bank is currently mapped.
+ * 16 KiB at a time through the cart's bank-select register.  Register
+ * each chip as a separate linear bank array so its full contents are
+ * reachable regardless of which bank the cart currently exposes.
  *
  * Writes go directly to the backing buffer, bypassing the flash command
  * sequence (program/erase) -- the linear view is for inspection and

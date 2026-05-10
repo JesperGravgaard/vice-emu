@@ -778,14 +778,14 @@ void retroreplay_powerup(void)
 
 /* ---------------------------------------------------------------------*/
 
-/* Monitor bank exposure.
+/* Linear memory view.
  *
  * Retro Replay holds 128 KiB Flash ROM (29F010) and 32 KiB SRAM that
  * are otherwise visible only one bank at a time through the cart's
- * mapping registers.  Expose both as separate linear bank arrays.
+ * mapping registers.  Register both as separate linear bank arrays.
  *
- * The RAM region only fills the lower half of the single 64 KiB monitor
- * bank; the upper half reads as zero and writes are dropped.
+ * The RAM region only fills the lower half of its single 64 KiB bank;
+ * the upper half reads as zero and writes are dropped.
  *
  * Flash writes go directly to the backing buffer, bypassing the flash
  * command sequence -- the linear view is for inspection and patching.
