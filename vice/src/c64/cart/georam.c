@@ -188,12 +188,8 @@ int georam_cart_enabled(void)
     return georam_enabled;
 }
 
-/*! \brief Read a byte from GeoRAM DRAM at the given linear address.
-
- \param addr
-   linear byte address into GeoRAM DRAM (bank << 16 | offset).
-
- \return the byte at that address, or 0 if out of range. */
+/* Read a byte from GeoRAM DRAM at the given linear address.
+ * `addr` is (bank << 16) | offset; out-of-range returns 0. */
 uint8_t georam_ram_read(unsigned int addr)
 {
     if (georam_ram != NULL && addr < (unsigned int)georam_size) {
@@ -202,15 +198,8 @@ uint8_t georam_ram_read(unsigned int addr)
     return 0;
 }
 
-/*! \brief Write a byte to GeoRAM DRAM at the given linear address.
-
- \param addr
-   linear byte address into GeoRAM DRAM (bank << 16 | offset).
-
- \param value
-   the byte value to write.
-
- Does nothing if the address is out of range. */
+/* Write a byte to GeoRAM DRAM at the given linear address.
+ * `addr` is (bank << 16) | offset; out-of-range writes are dropped. */
 void georam_ram_write(unsigned int addr, uint8_t value)
 {
     if (georam_ram != NULL && addr < (unsigned int)georam_size) {
@@ -218,7 +207,7 @@ void georam_ram_write(unsigned int addr, uint8_t value)
     }
 }
 
-/*! \brief Bank registry entry for the GeoRAM DRAM. */
+/* Bank registry entry for the GeoRAM DRAM. */
 static cart_bank_info_t georam_bank_info = {
     "geo",              /* prefix */
     0,                  /* num_banks -- set on enable/resize */
