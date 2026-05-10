@@ -2229,9 +2229,22 @@ static uint8_t peek_bank_io(uint16_t addr)
 /* FIXME: add ram00 bank, make 'ram' bank always show selected ram bank, ram00
  * and ram01 always physical ram bank */
 
-/* Base banks for 128K mode (11 named entries + sentinel). */
-#define NUM_BASE_BANKS_128 12  /* "default" + 11 banks */
-#define NUM_BASE_BANKS_256 14  /* "default" + 13 banks (2 extra ram banks) */
+/* The C128 has two memory configurations selected at runtime by the
+ * c128_full_banks resource:
+ *
+ *   - 128K mode (stock C128): RAM is 2 banks of 64 KiB (ram00, ram01)
+ *   - 256K mode (extended):   RAM is 4 banks of 64 KiB (ram00..ram03)
+ *
+ * Each mode has its own parallel set of base bank tables (banknames128
+ * / banknums128 / ... vs banknames256 / banknums256 / ...) and its own
+ * mem_bank_dynamic helper instance.  get_bank_dyn() picks the active
+ * pair based on c128_full_banks.
+ *
+ * NUM_BASE_BANKS_* is the count of named entries in the corresponding
+ * arrays (excluding the trailing NULL/-1 sentinel).  256-mode has two
+ * more entries than 128-mode -- the extra "ram02" and "ram03". */
+#define NUM_BASE_BANKS_128 12
+#define NUM_BASE_BANKS_256 14
 
 static const char *banknames128[NUM_BASE_BANKS_128 + 1] = {
     "default",
