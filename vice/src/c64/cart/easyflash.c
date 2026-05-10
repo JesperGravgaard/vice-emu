@@ -37,6 +37,7 @@
 #include "c64mem.h"
 #include "cartio.h"
 #include "cartridge.h"
+#include "cartridge_banks.h"
 #include "cmdline.h"
 #include "crt.h"
 #include "easyflash.h"
@@ -409,6 +410,79 @@ void easyflash_romh_store(uint16_t addr, uint8_t value)
     flash040core_store(easyflash_state_high, (easyflash_register_00 * 0x2000) + (addr & 0x1fff), value);
 }
 
+/* ---------------------------------------------------------------------*/
+
+/* Monitor bank exposure.
+ *
+ * The two flash chips together hold 1 MiB that is otherwise visible only
+ * 16 KiB at a time through the cart's bank-select register.  Expose both
+ * chips as separate linear bank arrays so the monitor can see and edit
+ * the entire flash regardless of which bank is currently mapped.
+ *
+ * Writes go directly to the backing buffer, bypassing the flash command
+ * sequence (program/erase) -- the linear view is for inspection and
+ * patching, not for emulating the flash protocol.
+ */
+
+#define EASYFLASH_FLASH_SIZE 0x80000   /* 64 banks * 8 KiB = 512 KiB per chip */
+#define EASYFLASH_FLASH_BANKS 8        /* 512 KiB / 64 KiB = 8 monitor banks */
+
+static uint8_t easyflash_low_read(unsigned int addr)
+{
+    if (easyflash_state_low == NULL || easyflash_state_low->flash_data == NULL
+        || addr >= EASYFLASH_FLASH_SIZE) {
+        return 0;
+    }
+    return easyflash_state_low->flash_data[addr];
+}
+
+static void easyflash_low_write(unsigned int addr, uint8_t value)
+{
+    if (easyflash_state_low == NULL || easyflash_state_low->flash_data == NULL
+        || addr >= EASYFLASH_FLASH_SIZE) {
+        return;
+    }
+    easyflash_state_low->flash_data[addr] = value;
+    easyflash_state_low->flash_dirty = 1;
+}
+
+static uint8_t easyflash_high_read(unsigned int addr)
+{
+    if (easyflash_state_high == NULL || easyflash_state_high->flash_data == NULL
+        || addr >= EASYFLASH_FLASH_SIZE) {
+        return 0;
+    }
+    return easyflash_state_high->flash_data[addr];
+}
+
+static void easyflash_high_write(unsigned int addr, uint8_t value)
+{
+    if (easyflash_state_high == NULL || easyflash_state_high->flash_data == NULL
+        || addr >= EASYFLASH_FLASH_SIZE) {
+        return;
+    }
+    easyflash_state_high->flash_data[addr] = value;
+    easyflash_state_high->flash_dirty = 1;
+}
+
+static cart_bank_info_t easyflash_low_bank_info = {
+    "efl",                          /* prefix -> efl00..efl07 */
+    EASYFLASH_FLASH_BANKS,
+    easyflash_low_read,
+    easyflash_low_write,
+    0,                              /* first_bank_num -- assigned by registry */
+    NULL                            /* next -- managed by registry */
+};
+
+static cart_bank_info_t easyflash_high_bank_info = {
+    "efh",                          /* prefix -> efh00..efh07 */
+    EASYFLASH_FLASH_BANKS,
+    easyflash_high_read,
+    easyflash_high_write,
+    0,
+    NULL
+};
+
 void easyflash_mmu_translate(unsigned int addr, uint8_t **base, int *start, int *limit)
 {
     if (easyflash_state_high && easyflash_state_high->flash_data &&
@@ -523,6 +597,9 @@ static int easyflash_common_attach(const char *filename)
     easyflash_io1_list_item = io_source_register(&easyflash_io1_device);
     easyflash_io2_list_item = io_source_register(&easyflash_io2_device);
 
+    cartridge_bank_register(&easyflash_low_bank_info);
+    cartridge_bank_register(&easyflash_high_bank_info);
+
     easyflash_filename = lib_strdup(filename);
 
     return 0;
@@ -577,6 +654,8 @@ int easyflash_crt_attach(FILE *fd, uint8_t *rawcart, const char *filename)
 
 void easyflash_detach(void)
 {
+    cartridge_bank_unregister(&easyflash_low_bank_info);
+    cartridge_bank_unregister(&easyflash_high_bank_info);
     if (easyflash_crt_write) {
         easyflash_flush_image();
     }
