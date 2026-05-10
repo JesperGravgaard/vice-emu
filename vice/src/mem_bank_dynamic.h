@@ -31,69 +31,66 @@
 #include "types.h"
 #include "cartridge_banks.h"
 
-/*! \brief Static configuration passed to mem_bank_dynamic_create().
+/* Static configuration passed to mem_bank_dynamic_create().
  *
  * Holds pointers to the four parallel base-bank tables and the count
  * of valid entries.  The first bank number reserved for cart banks is
  * derived from the tables at create time as (max base bank number + 1).
  *
- * The config is read-only; the helper stores the pointer, not a copy. */
+ * The config is read-only; the helper stores the pointer, not a copy.
+ */
 typedef struct mem_bank_dynamic_config_s {
-    /*! \brief NULL-terminated array of base bank names. */
+    /* NULL-terminated array of base bank names. */
     const char *const *base_banknames;
 
-    /*! \brief -1-terminated array of bank numbers, parallel to base_banknames. */
+    /* -1-terminated array of bank numbers, parallel to base_banknames. */
     const int *base_banknums;
 
-    /*! \brief -1-terminated array of bank indices, parallel to base_banknames. */
+    /* -1-terminated array of bank indices, parallel to base_banknames. */
     const int *base_bankindex;
 
-    /*! \brief -1-terminated array of bank flags, parallel to base_banknames. */
+    /* -1-terminated array of bank flags, parallel to base_banknames. */
     const int *base_bankflags;
 
-    /*! \brief Number of valid entries in the base arrays, excluding the sentinel. */
+    /* Number of valid entries in the base arrays, excluding the sentinel. */
     int num_base_banks;
 } mem_bank_dynamic_config_t;
 
-/*! \brief Opaque per-machine state. */
+/* Opaque per-machine state. */
 typedef struct mem_bank_dynamic_s mem_bank_dynamic_t;
 
-/*! \brief Allocate and initialize a helper instance.
- *
- * The config pointer is stored, not copied, and must outlive the
- * returned helper. */
+/* Allocate and initialize a helper instance.  The config pointer is
+ * stored, not copied, and must outlive the returned helper. */
 mem_bank_dynamic_t *mem_bank_dynamic_create(const mem_bank_dynamic_config_t *cfg);
 
-/*! \brief Free a helper allocated with mem_bank_dynamic_create(). */
+/* Free a helper allocated with mem_bank_dynamic_create(). */
 void mem_bank_dynamic_destroy(mem_bank_dynamic_t *self);
 
-/*! \brief Return the merged (base + cart) bank-name list.
- *
- * NULL-terminated.  Owned by the helper; lifetime ends at the next
- * call that may rebuild (any of these accessors). */
+/* Return the merged (base + cart) bank-name list.  NULL-terminated.
+ * Owned by the helper; lifetime ends at the next call that may rebuild
+ * (any of these accessors). */
 const char **mem_bank_dynamic_list          (mem_bank_dynamic_t *self);
 
-/*! \brief Return the merged bank-number list, parallel to _list().
- *
+/* Return the merged bank-number list, parallel to _list().
  * -1-terminated. */
 const int   *mem_bank_dynamic_list_nos      (mem_bank_dynamic_t *self);
 
-/*! \brief Return the bank number for @a name, or -1 if not present. */
+/* Return the bank number for `name`, or -1 if not present. */
 int          mem_bank_dynamic_from_name     (mem_bank_dynamic_t *self, const char *name);
 
-/*! \brief Return the bank index for @a bank, or -1 if not present. */
+/* Return the bank index for `bank`, or -1 if not present. */
 int          mem_bank_dynamic_index_from_bank(mem_bank_dynamic_t *self, int bank);
 
-/*! \brief Return the bank flags for @a bank, or -1 if not present. */
+/* Return the bank flags for `bank`, or -1 if not present. */
 int          mem_bank_dynamic_flags_from_bank(mem_bank_dynamic_t *self, int bank);
 
-/*! \brief If @a bank is a registered cart bank, store the byte at
- *  @a addr in @a *out and return true.  Otherwise return false. */
+/* If `bank` is a registered cart bank, store the byte at `addr` in
+ * `*out` and return true.  Otherwise return false. */
 bool mem_bank_dynamic_try_read (mem_bank_dynamic_t *self, int bank, uint16_t addr, uint8_t *out);
 
-/*! \brief If @a bank is a registered cart bank, dispatch the write and
- *  return true (writes to a region with a NULL write pointer are
- *  dropped but still report true).  Otherwise return false. */
+/* If `bank` is a registered cart bank, dispatch the write and return
+ * true (writes to a region with a NULL write pointer are dropped but
+ * still report true).  Otherwise return false. */
 bool mem_bank_dynamic_try_write(mem_bank_dynamic_t *self, int bank, uint16_t addr, uint8_t value);
 
 #endif
