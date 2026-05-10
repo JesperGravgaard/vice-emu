@@ -174,9 +174,7 @@ mem_bank_dynamic_t *mem_bank_dynamic_create(const mem_bank_dynamic_config_t *cfg
     mem_bank_dynamic_t *self = lib_malloc(sizeof(*self));
     int i, max_bank_num = -1;
 
-    /* Cart banks start one past the highest base bank number.  Scanning
-       the table here avoids each machine having to declare this manually
-       (and getting it wrong when "default" duplicates an existing bank). */
+    /* cart_banks_start = max(base_banknums) + 1 */
     for (i = 0; i < cfg->num_base_banks; i++) {
         if (cfg->base_banknums[i] > max_bank_num) {
             max_bank_num = cfg->base_banknums[i];
@@ -304,8 +302,5 @@ bool mem_bank_dynamic_try_write(mem_bank_dynamic_t *self, int bank, uint16_t add
     if (cart->write != NULL) {
         cart->write(((unsigned int)(bank - cart->first_bank_num) << 16) | addr, value);
     }
-    /* NULL-write is silently dropped: the bank is read-only (mask ROM).
-       We still report the write as "handled" so the caller does not fall
-       back to its base-bank dispatch. */
     return true;
 }

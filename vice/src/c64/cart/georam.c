@@ -227,7 +227,7 @@ void georam_ram_write(unsigned int addr, uint8_t value)
     }
 }
 
-/*! \brief Monitor bank info for the GeoRAM RAM region. */
+/*! \brief Bank registry entry for the GeoRAM DRAM. */
 static cart_bank_info_t georam_bank_info = {
     "geo",              /* prefix */
     0,                  /* num_banks -- set on enable/resize */

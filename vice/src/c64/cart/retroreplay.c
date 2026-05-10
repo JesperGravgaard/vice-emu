@@ -780,15 +780,15 @@ void retroreplay_powerup(void)
 
 /* Linear memory view.
  *
- * Retro Replay holds 128 KiB Flash ROM (29F010) and 32 KiB SRAM that
- * are otherwise visible only one bank at a time through the cart's
- * mapping registers.  Register both as separate linear bank arrays.
+ * Two cart_bank_info_t entries are registered with the bank registry:
  *
- * The RAM region only fills the lower half of its single 64 KiB bank;
- * the upper half reads as zero and writes are dropped.
+ *   - rrf00..rrf01: 128 KiB Flash ROM (29F010) as 2 banks of 64 KiB
+ *   - rrr00:        32 KiB SRAM as a single 64 KiB bank (lower half only)
  *
- * Flash writes go directly to the backing buffer, bypassing the flash
- * command sequence -- the linear view is for inspection and patching.
+ * The upper half of rrr00 reads as zero and writes are dropped.  Reads
+ * index directly into the backing buffers.  Flash writes set
+ * flash_data[addr] and mark the chip dirty; the flash command-sequence
+ * handling in the normal CPU write path is bypassed.
  */
 
 #define RR_FLASH_SIZE 0x20000              /* 29F010 = 128 KiB */

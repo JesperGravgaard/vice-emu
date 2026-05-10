@@ -2587,13 +2587,14 @@ void mmcreplay_powerup(void)
 
 /* Linear memory view.
  *
- * MMC Replay holds 512 KiB Flash ROM and 512 KiB RAM that are otherwise
- * visible only one bank at a time through the cart's mapping registers.
- * Register both as separate linear bank arrays so each region's full
- * contents are reachable regardless of the current mapping.
+ * Two cart_bank_info_t entries are registered with the bank registry:
  *
- * Flash writes go directly to the backing buffer, bypassing the flash
- * command sequence -- the linear view is for inspection and patching.
+ *   - mmcrf00..mmcrf07: 512 KiB Flash ROM as 8 banks of 64 KiB
+ *   - mmcrr00..mmcrr07: 512 KiB SRAM as 8 banks of 64 KiB
+ *
+ * Reads index directly into the backing buffers.  Flash writes set
+ * flash_data[addr] and mark the chip dirty; the flash command-sequence
+ * handling in the normal CPU write path is bypassed.
  */
 
 #define MMCR_BANKS (MMCREPLAY_FLASHROM_SIZE / 0x10000)  /* 512 KiB / 64 KiB = 8 */

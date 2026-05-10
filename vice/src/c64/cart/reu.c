@@ -349,7 +349,7 @@ void reu_ram_write(unsigned int addr, uint8_t value)
     }
 }
 
-/*! \brief Monitor bank info for the REU RAM region. */
+/*! \brief Bank registry entry for the REU DRAM. */
 static cart_bank_info_t reu_bank_info = {
     "reu",          /* prefix */
     0,              /* num_banks -- set on enable/resize */

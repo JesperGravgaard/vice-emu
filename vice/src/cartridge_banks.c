@@ -30,11 +30,7 @@
 
 #include "cartridge_banks.h"
 
-/* Head of the singly-linked list of registered cartridge bank regions. */
 static cart_bank_info_t *cart_bank_head = NULL;
-
-/* Bumped on every register/unregister.  Machine mem modules cache this
-   value and rebuild their bank arrays when it changes. */
 static unsigned int cart_bank_gen = 0;
 
 void cartridge_bank_register(cart_bank_info_t *info)
@@ -45,8 +41,6 @@ void cartridge_bank_register(cart_bank_info_t *info)
         return;
     }
 
-    /* Idempotent: if already in the list, just bump the generation so
-       the machine mem module knows to rebuild (e.g. after a resize). */
     for (cur = cart_bank_head; cur != NULL; cur = cur->next) {
         if (cur == info) {
             cart_bank_gen++;
@@ -54,7 +48,6 @@ void cartridge_bank_register(cart_bank_info_t *info)
         }
     }
 
-    /* Not in list yet -- prepend. */
     info->next = cart_bank_head;
     cart_bank_head = info;
     cart_bank_gen++;
@@ -82,7 +75,6 @@ void cartridge_bank_unregister(cart_bank_info_t *info)
         }
         prev = cur;
     }
-    /* Not found -- safe no-op. */
 }
 
 cart_bank_info_t *cartridge_bank_list(void)

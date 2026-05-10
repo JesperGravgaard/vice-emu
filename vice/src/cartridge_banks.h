@@ -29,32 +29,19 @@
 
 #include "types.h"
 
-/*! \brief Describes a cartridge memory region exposed as monitor banks.
+/*! \brief Registry entry describing one linear cartridge memory region.
  *
- * The registry is for cartridge (or internal-expansion) memory that is
- * not always fully visible in the CPU address space -- for example RAM
- * behind an I/O window, or paged ROM where only the currently selected
- * bank is mapped.  The whole backing buffer is exposed linearly,
- * regardless of the cartridge's own banking state.
+ * One entry advertises @code{num_banks} pages of 64 KiB each, named
+ * @code{<prefix>00}..@code{<prefix>NN}.  A cartridge populates a static
+ * cart_bank_info_t and calls cartridge_bank_register() to add it; a
+ * cartridge with multiple regions registers multiple entries, each
+ * with a unique prefix.
  *
- * Cartridges with all memory permanently mapped (e.g. simple 8 KiB ROMs,
- * Expert SRAM) do not need to register; they are already covered by the
- * existing @code{cart} bank.
- *
- * A single cartridge may register more than one of these structs to
- * expose distinct regions.  For example MMC Replay registers two: one
- * for its 512 KiB Flash ROM, one for its 512 KiB SRAM, with separate
- * prefixes (e.g. "mmcrf" and "mmcrr").
- *
- * Banks are always 64 KiB pages.  The read/write functions take a
- * linear byte address @code{(bank_index << 16) | offset} and access the
- * backing buffer directly -- bypassing any flash command sequences,
- * bank-select latches, etc. that the cartridge would normally apply for
- * CPU accesses.
- *
- * The write pointer may be NULL for true read-only regions (mask ROM).
- * Flash ROM should provide a write that hits the buffer directly so the
- * monitor's @code{>} (poke) command can modify bytes for debugging.
+ * Reads call @code{info->read(linear_addr)} where @code{linear_addr}
+ * is @code{(bank_index << 16) | page_offset} and @code{bank_index}
+ * ranges over @code{0..num_banks-1}.  Writes call @code{info->write}
+ * with the same address layout; a NULL write pointer marks the region
+ * read-only and writes through the registry are dropped.
  */
 typedef struct cart_bank_info_s {
     /*! \brief Short lowercase prefix used to form bank names.
@@ -75,10 +62,9 @@ typedef struct cart_bank_info_s {
 
     /*! \brief Write one byte to a linear address within this region.
      *
-     * NULL for true read-only regions (mask ROM); the monitor's poke is
-     * silently dropped.  Flash carts should provide a write that
-     * modifies the backing buffer directly, ignoring any flash command
-     * sequence logic the cart applies to normal CPU writes.
+     * NULL marks the region read-only; writes through the registry are
+     * dropped.  Implementations should index the backing buffer
+     * directly (no bank-select or flash command-sequence logic).
      *
      * \param addr   Linear byte address: (bank_index << 16) | page_offset.
      * \param value  Byte value to write. */
@@ -93,32 +79,27 @@ typedef struct cart_bank_info_s {
     struct cart_bank_info_s *next;
 } cart_bank_info_t;
 
-/*! \brief Register a cartridge memory region with the monitor bank system.
+/*! \brief Add a cart_bank_info_t to the registry.
  *
- * Idempotent: if the info pointer is already registered, the generation
- * counter is bumped (useful after a resize where num_banks changed).
- * Call on cartridge enable, on resize (after updating num_banks), and
- * once for each region of a multi-region cart.
+ * If @a info is already in the registry the entry is not duplicated;
+ * the generation counter is bumped either way.
  *
  * \param info  Pointer to a caller-owned cart_bank_info_t. */
 void cartridge_bank_register(cart_bank_info_t *info);
 
-/*! \brief Unregister a cartridge memory region from the monitor bank system.
+/*! \brief Remove a cart_bank_info_t from the registry.
  *
- * Safe to call even if the info is not currently registered.
+ * No-op if @a info is not currently in the registry.
  *
  * \param info  Pointer to the cart_bank_info_t to remove. */
 void cartridge_bank_unregister(cart_bank_info_t *info);
 
-/*! \brief Return the head of the registered cartridge bank list.
+/*! \brief Return the head of the registered cart_bank_info_t list.
  *
- * Iterate with info->next; the list ends when next is NULL. */
+ * Iterate via @code{info->next}; the list terminates with NULL. */
 cart_bank_info_t *cartridge_bank_list(void);
 
-/*! \brief Return a generation counter that increases on every change.
- *
- * Consumers (machine mem modules via mem_bank_dynamic) cache this value
- * and rebuild their bank arrays when it differs from the cached copy. */
+/*! \brief Return a counter that increments on every register/unregister. */
 unsigned int cartridge_bank_generation(void);
 
 #endif

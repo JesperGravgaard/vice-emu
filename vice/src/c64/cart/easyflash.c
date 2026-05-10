@@ -414,14 +414,15 @@ void easyflash_romh_store(uint16_t addr, uint8_t value)
 
 /* Linear memory view.
  *
- * The two flash chips together hold 1 MiB that is otherwise visible only
- * 16 KiB at a time through the cart's bank-select register.  Register
- * each chip as a separate linear bank array so its full contents are
- * reachable regardless of which bank the cart currently exposes.
+ * Two cart_bank_info_t entries are registered with the bank registry,
+ * one per flash chip:
  *
- * Writes go directly to the backing buffer, bypassing the flash command
- * sequence (program/erase) -- the linear view is for inspection and
- * patching, not for emulating the flash protocol.
+ *   - efl00..efl07: low chip,  512 KiB as 8 banks of 64 KiB
+ *   - efh00..efh07: high chip, 512 KiB as 8 banks of 64 KiB
+ *
+ * Reads index directly into flash_data.  Writes set flash_data[addr]
+ * and mark the chip dirty; the flash command-sequence handling in the
+ * normal CPU write path is bypassed.
  */
 
 #define EASYFLASH_FLASH_SIZE 0x80000   /* 64 banks * 8 KiB = 512 KiB per chip */
