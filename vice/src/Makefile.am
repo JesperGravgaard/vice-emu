@@ -227,6 +227,7 @@ noinst_HEADERS = \
 	mainlock.h \
 	mainviccpu.c \
 	mem.h \
+	mem_bank_dynamic.h \
 	midi.h \
 	mididrv.h \
 	monitor.h \
@@ -325,6 +326,7 @@ base_sources = \
 	machine.c \
 	main.c \
 	mainlock.c \
+	mem_bank_dynamic.c \
 	m3u.c \
 	network.c \
 	opencbmlib.c \
