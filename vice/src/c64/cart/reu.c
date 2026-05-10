@@ -310,15 +310,6 @@ int reu_cart_enabled(void)
     return reu_enabled;
 }
 
-/*! \brief Return the size of the REU in bytes.
-
- Used by the monitor bank system to determine how many 64K REU banks
- to expose. Returns 0 if the REU has not been initialized. */
-unsigned int reu_get_size(void)
-{
-    return reu_size;
-}
-
 /*! \brief Read a byte from REU DRAM at the given linear address.
 
  \param addr

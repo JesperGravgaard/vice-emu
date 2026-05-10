@@ -425,8 +425,8 @@ void easyflash_romh_store(uint16_t addr, uint8_t value)
  * normal CPU write path is bypassed.
  */
 
-#define EASYFLASH_FLASH_SIZE 0x80000   /* 64 banks * 8 KiB = 512 KiB per chip */
-#define EASYFLASH_FLASH_BANKS 8        /* 512 KiB / 64 KiB = 8 monitor banks */
+#define EASYFLASH_FLASH_SIZE  0x80000  /* 512 KiB per chip */
+#define EASYFLASH_FLASH_BANKS 8        /* 512 KiB / 64 KiB */
 
 static uint8_t easyflash_low_read(unsigned int addr)
 {

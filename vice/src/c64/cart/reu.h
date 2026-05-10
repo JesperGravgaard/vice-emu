@@ -65,7 +65,6 @@ int reu_bin_save(const char *filename);
 int reu_flush_image(void);
 void reu_powerup(void);
 
-unsigned int reu_get_size(void);
 uint8_t reu_ram_read(unsigned int addr);
 void reu_ram_write(unsigned int addr, uint8_t value);
 

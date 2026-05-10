@@ -1,5 +1,5 @@
 /*
- * cartridge_banks.h -- Generic monitor bank registration for cartridge memory.
+ * cartridge_banks.h -- Registry of linear cartridge memory regions.
  *
  * Written by
  *  Jesper Balman Gravgaard <jesper@balmangravgaard.dk>

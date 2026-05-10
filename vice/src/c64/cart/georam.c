@@ -188,15 +188,6 @@ int georam_cart_enabled(void)
     return georam_enabled;
 }
 
-/*! \brief Return the size of the GeoRAM in bytes.
-
- Used by the monitor bank system to determine how many 64K GeoRAM banks
- to expose. Returns 0 if the GeoRAM has not been initialized. */
-unsigned int georam_get_size(void)
-{
-    return (unsigned int)georam_size;
-}
-
 /*! \brief Read a byte from GeoRAM DRAM at the given linear address.
 
  \param addr
