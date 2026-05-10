@@ -39,6 +39,7 @@
 #include "c64mem.h"
 #include "cartio.h"
 #include "cartridge.h"
+#include "cartridge_banks.h"
 #include "clockport.h"
 #include "cmdline.h"
 #include "crt.h"
@@ -775,6 +776,78 @@ void retroreplay_powerup(void)
     ram_init_with_pattern(export_ram0, CART_RAM_SIZE, &ramparam);
 }
 
+/* ---------------------------------------------------------------------*/
+
+/* Monitor bank exposure.
+ *
+ * Retro Replay holds 128 KiB Flash ROM (29F010) and 32 KiB SRAM that
+ * are otherwise visible only one bank at a time through the cart's
+ * mapping registers.  Expose both as separate linear bank arrays.
+ *
+ * The RAM region only fills the lower half of the single 64 KiB monitor
+ * bank; the upper half reads as zero and writes are dropped.
+ *
+ * Flash writes go directly to the backing buffer, bypassing the flash
+ * command sequence -- the linear view is for inspection and patching.
+ */
+
+#define RR_FLASH_SIZE 0x20000              /* 29F010 = 128 KiB */
+#define RR_FLASH_BANKS (RR_FLASH_SIZE / 0x10000)  /* 2 banks of 64 KiB */
+#define RR_RAM_BANKS 1                     /* CART_RAM_SIZE = 32 KiB, exposed as 1 partial bank */
+
+static uint8_t rr_flash_read(unsigned int addr)
+{
+    if (flashrom_state == NULL || flashrom_state->flash_data == NULL
+        || addr >= RR_FLASH_SIZE) {
+        return 0;
+    }
+    return flashrom_state->flash_data[addr];
+}
+
+static void rr_flash_write(unsigned int addr, uint8_t value)
+{
+    if (flashrom_state == NULL || flashrom_state->flash_data == NULL
+        || addr >= RR_FLASH_SIZE) {
+        return;
+    }
+    flashrom_state->flash_data[addr] = value;
+    flashrom_state->flash_dirty = 1;
+}
+
+static uint8_t rr_ram_read(unsigned int addr)
+{
+    if (export_ram0 == NULL || addr >= CART_RAM_SIZE) {
+        return 0;
+    }
+    return export_ram0[addr];
+}
+
+static void rr_ram_write(unsigned int addr, uint8_t value)
+{
+    if (export_ram0 == NULL || addr >= CART_RAM_SIZE) {
+        return;
+    }
+    export_ram0[addr] = value;
+}
+
+static cart_bank_info_t rr_flash_bank_info = {
+    "rrf",                  /* prefix -> rrf00..rrf01 */
+    RR_FLASH_BANKS,
+    rr_flash_read,
+    rr_flash_write,
+    0,                      /* first_bank_num -- assigned by registry */
+    NULL                    /* next -- managed by registry */
+};
+
+static cart_bank_info_t rr_ram_bank_info = {
+    "rrr",                  /* prefix -> rrr00 */
+    RR_RAM_BANKS,
+    rr_ram_read,
+    rr_ram_write,
+    0,
+    NULL
+};
+
 void retroreplay_freeze(void)
 {
     /* freeze button is disabled in flash mode */
@@ -1090,6 +1163,9 @@ static int retroreplay_common_attach(void)
         return -1;
     }
 
+    cartridge_bank_register(&rr_flash_bank_info);
+    cartridge_bank_register(&rr_ram_bank_info);
+
     rr_enabled = 1;
 
     nofreeze_alarm = alarm_new(maincpu_alarm_context, "NoFreezeAlarm", nofreeze_alarm_handler, NULL);
@@ -1304,6 +1380,8 @@ int retroreplay_flush_image(void)
 void retroreplay_detach(void)
 {
     DBG(("retroreplay_detach"));
+    cartridge_bank_unregister(&rr_flash_bank_info);
+    cartridge_bank_unregister(&rr_ram_bank_info);
     if (rr_bios_write && flashrom_state->flash_dirty) {
         retroreplay_flush_image();
     }

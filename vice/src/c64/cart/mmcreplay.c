@@ -37,6 +37,7 @@
 #include "c64pla.h"
 #include "cartio.h"
 #include "cartridge.h"
+#include "cartridge_banks.h"
 #include "clockport.h"
 #include "cmdline.h"
 #include "crt.h"
@@ -2582,6 +2583,73 @@ void mmcreplay_powerup(void)
     }
 }
 
+/* ---------------------------------------------------------------------*/
+
+/* Monitor bank exposure.
+ *
+ * MMC Replay holds 512 KiB Flash ROM and 512 KiB RAM that are otherwise
+ * visible only one bank at a time through the cart's mapping registers.
+ * Expose both as separate linear bank arrays.
+ *
+ * Flash writes go directly to the backing buffer, bypassing the flash
+ * command sequence -- the linear view is for inspection and patching.
+ */
+
+#define MMCR_BANKS (MMCREPLAY_FLASHROM_SIZE / 0x10000)  /* 512 KiB / 64 KiB = 8 */
+
+static uint8_t mmcr_flash_read(unsigned int addr)
+{
+    if (flashrom_state == NULL || flashrom_state->flash_data == NULL
+        || addr >= MMCREPLAY_FLASHROM_SIZE) {
+        return 0;
+    }
+    return flashrom_state->flash_data[addr];
+}
+
+static void mmcr_flash_write(unsigned int addr, uint8_t value)
+{
+    if (flashrom_state == NULL || flashrom_state->flash_data == NULL
+        || addr >= MMCREPLAY_FLASHROM_SIZE) {
+        return;
+    }
+    flashrom_state->flash_data[addr] = value;
+    flashrom_state->flash_dirty = 1;
+}
+
+static uint8_t mmcr_ram_read(unsigned int addr)
+{
+    if (mmcr_ram == NULL || addr >= MMCREPLAY_RAM_SIZE) {
+        return 0;
+    }
+    return mmcr_ram[addr];
+}
+
+static void mmcr_ram_write(unsigned int addr, uint8_t value)
+{
+    if (mmcr_ram == NULL || addr >= MMCREPLAY_RAM_SIZE) {
+        return;
+    }
+    mmcr_ram[addr] = value;
+}
+
+static cart_bank_info_t mmcr_flash_bank_info = {
+    "mmcrf",                /* prefix -> mmcrf00..mmcrf07 */
+    MMCR_BANKS,
+    mmcr_flash_read,
+    mmcr_flash_write,
+    0,                      /* first_bank_num -- assigned by registry */
+    NULL                    /* next -- managed by registry */
+};
+
+static cart_bank_info_t mmcr_ram_bank_info = {
+    "mmcrr",                /* prefix -> mmcrr00..mmcrr07 */
+    MMCR_BANKS,
+    mmcr_ram_read,
+    mmcr_ram_write,
+    0,
+    NULL
+};
+
 void mmcreplay_config_init(void)
 {
 #if 0
@@ -2709,6 +2777,9 @@ static int mmcreplay_common_attach(const char *filename)
     mmcreplay_io1_list_item = io_source_register(&mmcreplay_io1_device);
     mmcreplay_io2_list_item = io_source_register(&mmcreplay_io2_device);
     mmcreplay_clockport_list_item = io_source_register(&mmcreplay_clockport_device);
+
+    cartridge_bank_register(&mmcr_flash_bank_info);
+    cartridge_bank_register(&mmcr_ram_bank_info);
 
     mmcr_enabled = 1;
 
@@ -2914,6 +2985,9 @@ int mmcreplay_can_flush_eeprom(void)
 
 void mmcreplay_detach(void)
 {
+    cartridge_bank_unregister(&mmcr_flash_bank_info);
+    cartridge_bank_unregister(&mmcr_ram_bank_info);
+
     if (mmcr_write_image && flashrom_state->flash_dirty) {
         mmcreplay_flush_image();
     }
