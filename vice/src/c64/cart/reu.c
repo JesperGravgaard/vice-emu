@@ -48,6 +48,7 @@
 #include "archdep.h"
 #include "cartio.h"
 #include "cartridge.h"
+#include "cartridge_banks.h"
 #include "cmdline.h"
 #include "export.h"
 #include "interrupt.h"
@@ -309,6 +310,45 @@ int reu_cart_enabled(void)
     return reu_enabled;
 }
 
+/*! \internal \brief Read a byte from REU DRAM at the given linear address.
+
+ \param addr
+   linear byte address into REU DRAM (bank << 16 | offset).
+
+ \return the byte at that address, or 0 if out of range. */
+static uint8_t reu_ram_read(unsigned int addr)
+{
+    if (reu_ram != NULL && addr < reu_size) {
+        return reu_ram[addr];
+    }
+    return 0;
+}
+
+/*! \internal \brief Write a byte to REU DRAM at the given linear address.
+
+ \param addr
+   linear byte address into REU DRAM (bank << 16 | offset).
+
+ \param value
+   the byte value to write.
+
+ Does nothing if the address is out of range. */
+static void reu_ram_write(unsigned int addr, uint8_t value)
+{
+    if (reu_ram != NULL && addr < reu_size) {
+        reu_ram[addr] = value;
+    }
+}
+
+/*! \brief Bank registry entry for the REU DRAM. */
+static cart_bank_info_t reu_bank_info = {
+    "reu",          /* prefix */
+    0,              /* num_banks -- set on enable/resize */
+    reu_ram_read,
+    reu_ram_write,
+    NULL            /* next -- managed by registry */
+};
+
 /*! \internal \brief set the reu to the enabled or disabled state
 
  \param val
@@ -332,6 +372,7 @@ static int set_reu_enabled(int value, void *param)
         io_source_unregister(reu_list_item);
         reu_list_item = NULL;
         reu_enabled = 0;
+        cartridge_bank_unregister(&reu_bank_info);
     } else if ((val) && (!reu_enabled)) {
         if (reu_activate() < 0) {
             return -1;
@@ -342,6 +383,8 @@ static int set_reu_enabled(int value, void *param)
 
         reu_list_item = io_source_register(&reu_io2_device);
         reu_enabled = 1;
+        reu_bank_info.num_banks = (int)(reu_size >> 16);
+        cartridge_bank_register(&reu_bank_info);
     }
     return 0;
 }
@@ -433,6 +476,8 @@ static int set_reu_size(int val, void *param)
 
     if (reu_enabled) {
         reu_activate();
+        reu_bank_info.num_banks = (int)(reu_size >> 16);
+        cartridge_bank_register(&reu_bank_info);
     }
 
     return 0;
@@ -523,6 +568,7 @@ int reu_resources_init(void)
 /*! \brief uninitialize the reu resources */
 void reu_resources_shutdown(void)
 {
+    cartridge_bank_unregister(&reu_bank_info);
     lib_free(reu_filename);
     reu_filename = NULL;
 }
